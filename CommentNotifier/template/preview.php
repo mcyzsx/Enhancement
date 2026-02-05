@@ -32,6 +32,8 @@ $demouser = array(
 // 随机选择两个不同的数组元素
 $index1 = rand(0, count($demouser) - 1);
 $index2 = array_rand(array_diff_key($demouser, [$index1 => '']));
+$avatarUrl = 'https://cn.cravatar.com/avatar/' . $demouser[$index1]['md5'] . '?d=monsterid&s=40';
+$PavatarUrl = 'https://cn.cravatar.com/avatar/' . $demouser[$index2]['md5'] . '?d=monsterid&s=40';
 
 $search = array(
             '{title}',//文章标题
@@ -41,6 +43,7 @@ $search = array(
             '{author}',//评论人昵称
             '{mail}',//评论者邮箱
             '{md5}',//评论者邮箱
+            '{avatar}',//评论者头像
             '{ip}',//评论者ip
             '{permalink}',//评论楼层链接
             '{siteUrl}',//网站地址
@@ -49,6 +52,7 @@ $search = array(
             '{Ptext}',//父级评论内容
             '{Pmail}',//父级评论邮箱
             '{Pmd5}',//父级评论邮箱md5
+            '{Pavatar}',//父级评论头像
             '{url}',//当前模板文件夹路径
             '{manageurl}',//后台管理评论的入口链接
             '{status}', //评论状态
@@ -61,6 +65,7 @@ $search = array(
             $demouser[$index1]['name'],
             'bssf@qq.com',
             $demouser[$index1]['md5'],
+            $avatarUrl,
             '192.168.1.1',
             'https://github.com/jrotty/CommentNotifier',
             'https://typecho.work',
@@ -69,6 +74,7 @@ $search = array(
             '这个插件真好用!',
             'zezeshe@foxmail.com',
             $demouser[$index2]['md5'],
+            $PavatarUrl,
             './' . $templateDir.'/',
             'https://typecho.work',
             '通过'

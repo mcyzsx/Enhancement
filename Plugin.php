@@ -5,7 +5,7 @@
  * 具体功能包含:友情链接,瞬间,网站地图,编辑器增强等
  * @package Enhancement
  * @author jkjoy
- * @version 1.0.2
+ * @version 1.0.3
  * @link HTTPS://IMSUN.ORG
  * @dependence 14.10.10-*
  */
@@ -41,6 +41,7 @@ class Enhancement_Plugin implements Typecho_Plugin_Interface
         Typecho_Plugin::factory('Widget_Abstract_Contents')->contentEx = array('Enhancement_Plugin', 'parse');
         Typecho_Plugin::factory('Widget_Abstract_Contents')->excerptEx = array('Enhancement_Plugin', 'parse');
         Typecho_Plugin::factory('Widget_Abstract_Comments')->contentEx = array('Enhancement_Plugin', 'parse');
+        Typecho_Plugin::factory('Widget_Archive')->handleInit = array('Enhancement_Plugin', 'applyAvatarPrefix');
         Typecho_Plugin::factory('Widget_Archive')->callEnhancement = array('Enhancement_Plugin', 'output_str');
         return _t($info);
     }
@@ -1385,6 +1386,16 @@ class Enhancement_Plugin implements Typecho_Plugin_Interface
         }
 
         return self::normalizeAvatarBase($base);
+    }
+
+    public static function applyAvatarPrefix($archive = null, $select = null)
+    {
+        if (!self::avatarMirrorEnabled()) {
+            return;
+        }
+        if (!defined('__TYPECHO_GRAVATAR_PREFIX__')) {
+            define('__TYPECHO_GRAVATAR_PREFIX__', self::avatarBaseUrl());
+        }
     }
 
     public static function buildAvatarUrl($email, $size = null, $default = null, array $extra = array()): string
