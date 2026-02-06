@@ -25,6 +25,7 @@ class Enhancement_Plugin implements Typecho_Plugin_Interface
         $info = Enhancement_Plugin::enhancementInstall();
         Helper::addPanel(3, 'Enhancement/manage-enhancement.php', _t('链接管理'), _t('审核管理'), 'administrator');
         Helper::addPanel(3, 'Enhancement/manage-moments.php', _t('瞬间'), _t('瞬间管理'), 'administrator');
+        Helper::addPanel(3, 'Enhancement/manage-equipment.php', _t('装备'), _t('装备管理'), 'administrator');
         Helper::addPanel(1, self::$commentNotifierPanel, _t('评论邮件提醒外观'), _t('评论邮件提醒主题列表'), 'administrator');
         Helper::addRoute('sitemap', '/sitemap.xml', 'Enhancement_Sitemap_Action', 'action');
         Helper::addRoute('memos_api', '/api/v1/memos', 'Enhancement_Memos_Action', 'action');
@@ -32,6 +33,7 @@ class Enhancement_Plugin implements Typecho_Plugin_Interface
         Helper::addAction('enhancement-edit', 'Enhancement_Action');
         Helper::addAction('enhancement-submit', 'Enhancement_Action');
         Helper::addAction('enhancement-moments-edit', 'Enhancement_Action');
+        Helper::addAction('enhancement-equipment', 'Enhancement_Equipment_Action');
         Typecho_Plugin::factory('Widget_Feedback')->finishComment = [__CLASS__, 'finishComment'];
         Typecho_Plugin::factory('Widget_Comments_Edit')->finishComment = [__CLASS__, 'finishComment'];
         Typecho_Plugin::factory('Widget_Comments_Edit')->mark = [__CLASS__, 'commentNotifierMark'];
