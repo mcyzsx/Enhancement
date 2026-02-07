@@ -5,7 +5,7 @@
  * 具体功能包含:友情链接,瞬间,网站地图,编辑器增强等
  * @package Enhancement
  * @author jkjoy
- * @version 1.0.4
+ * @version 1.0.5
  * @link HTTPS://IMSUN.ORG
  * @dependence 14.10.10-*
  */
@@ -58,7 +58,18 @@ class Enhancement_Plugin implements Typecho_Plugin_Interface
     {
         $options = Typecho_Widget::widget('Widget_Options');
         $settings = $options->plugin('Enhancement');
-        $deleteTables = isset($settings->delete_tables_on_deactivate) && $settings->delete_tables_on_deactivate == '1';
+        $legacyDeleteTables = isset($settings->delete_tables_on_deactivate) && $settings->delete_tables_on_deactivate == '1';
+        $deleteLinksTable = isset($settings->delete_links_table_on_deactivate) && $settings->delete_links_table_on_deactivate == '1';
+        $deleteMomentsTable = isset($settings->delete_moments_table_on_deactivate) && $settings->delete_moments_table_on_deactivate == '1';
+
+        if ($legacyDeleteTables) {
+            if (!isset($settings->delete_links_table_on_deactivate)) {
+                $deleteLinksTable = true;
+            }
+            if (!isset($settings->delete_moments_table_on_deactivate)) {
+                $deleteMomentsTable = true;
+            }
+        }
 
         Helper::removeRoute('sitemap');
         Helper::removeRoute('memos_api');
@@ -70,7 +81,7 @@ class Enhancement_Plugin implements Typecho_Plugin_Interface
         Helper::removePanel(3, 'Enhancement/manage-moments.php');
         Helper::removePanel(1, self::$commentNotifierPanel);
 
-        if ($deleteTables) {
+        if ($deleteLinksTable || $deleteMomentsTable) {
             $db = Typecho_Db::get();
             $prefix = $db->getPrefix();
             $type = explode('_', $db->getAdapterName());
@@ -78,11 +89,19 @@ class Enhancement_Plugin implements Typecho_Plugin_Interface
 
             try {
                 if ('Pgsql' == $type) {
-                    $db->query('DROP TABLE IF EXISTS "' . $prefix . 'links"');
-                    $db->query('DROP TABLE IF EXISTS "' . $prefix . 'moments"');
+                    if ($deleteLinksTable) {
+                        $db->query('DROP TABLE IF EXISTS "' . $prefix . 'links"');
+                    }
+                    if ($deleteMomentsTable) {
+                        $db->query('DROP TABLE IF EXISTS "' . $prefix . 'moments"');
+                    }
                 } else {
-                    $db->query('DROP TABLE IF EXISTS `' . $prefix . 'links`');
-                    $db->query('DROP TABLE IF EXISTS `' . $prefix . 'moments`');
+                    if ($deleteLinksTable) {
+                        $db->query('DROP TABLE IF EXISTS `' . $prefix . 'links`');
+                    }
+                    if ($deleteMomentsTable) {
+                        $db->query('DROP TABLE IF EXISTS `' . $prefix . 'moments`');
+                    }
                 }
             } catch (Exception $e) {
                 // ignore drop errors on deactivate
@@ -462,14 +481,29 @@ class Enhancement_Plugin implements Typecho_Plugin_Interface
         );
         $form->addInput($biaoqing);
 
-        $deleteTables = new Typecho_Widget_Helper_Form_Element_Radio(
-            'delete_tables_on_deactivate',
+        $options = Typecho_Widget::widget('Widget_Options');
+        $settings = $options->plugin('Enhancement');
+        $legacyDeleteTables = isset($settings->delete_tables_on_deactivate) && $settings->delete_tables_on_deactivate == '1';
+        $deleteLinksDefault = $legacyDeleteTables ? '1' : '0';
+        $deleteMomentsDefault = $legacyDeleteTables ? '1' : '0';
+
+        $deleteLinksTable = new Typecho_Widget_Helper_Form_Element_Radio(
+            'delete_links_table_on_deactivate',
             array('0' => _t('否（不删除）'), '1' => _t('是（删除）')),
-            '0',
-            _t('<h3 class="enhancement-title">维护设置</h3>禁用插件时删除数据表'),
-            _t('谨慎开启，会删除 links 与 moments 表数据')
+            $deleteLinksDefault,
+            _t('<h3 class="enhancement-title">维护设置</h3>禁用插件时删除友情链接表（links）'),
+            _t('谨慎开启，会删除 links 表数据')
         );
-        $form->addInput($deleteTables);
+        $form->addInput($deleteLinksTable);
+
+        $deleteMomentsTable = new Typecho_Widget_Helper_Form_Element_Radio(
+            'delete_moments_table_on_deactivate',
+            array('0' => _t('否（不删除）'), '1' => _t('是（删除）')),
+            $deleteMomentsDefault,
+            _t('禁用插件时删除说说表（moments）'),
+            _t('谨慎开启，会删除 moments 表数据')
+        );
+        $form->addInput($deleteMomentsTable);
 
         $template = new Typecho_Widget_Helper_Form_Element_Text(
             'template',
