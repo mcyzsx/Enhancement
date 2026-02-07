@@ -70,6 +70,7 @@ class Enhancement_Plugin implements Typecho_Plugin_Interface
         Helper::removeAction('enhancement-moments-edit');
         Helper::removePanel(3, 'Enhancement/manage-enhancement.php');
         Helper::removePanel(3, 'Enhancement/manage-moments.php');
+        Helper::removePanel(3, 'Enhancement/manage-equipment.php');
         Helper::removePanel(1, self::$commentNotifierPanel);
 
         if ($deleteTables) {
