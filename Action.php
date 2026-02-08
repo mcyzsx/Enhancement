@@ -242,6 +242,37 @@ class Enhancement_Action extends Typecho_Widget implements Widget_Interface_Do
         return isset($row->num) ? intval($row->num) : 0;
     }
 
+    private function isValidSettingsBackupName($name)
+    {
+        $name = trim((string)$name);
+        if ($name === '') {
+            return false;
+        }
+
+        $prefix = $this->settingsBackupNamePrefix();
+        if (strpos($name, $prefix) !== 0) {
+            return false;
+        }
+
+        return preg_match('/^plugin:Enhancement:backup:\d{14}-[A-Za-z0-9]+$/', $name) === 1;
+    }
+
+    private function getSettingsBackupSnapshotByName($name)
+    {
+        $name = trim((string)$name);
+        if (!$this->isValidSettingsBackupName($name)) {
+            return null;
+        }
+
+        return $this->db->fetchRow(
+            $this->db->select('name', 'value')
+                ->from('table.options')
+                ->where('name = ?', $name)
+                ->where('user = ?', 0)
+                ->limit(1)
+        );
+    }
+
     private function backupResponse($success, $message, $statusCode = 200)
     {
         $statusCode = intval($statusCode);
@@ -279,6 +310,38 @@ class Enhancement_Action extends Typecho_Widget implements Widget_Interface_Do
 
     public function restorePluginSettings()
     {
+        $backupName = trim((string)$this->request->get('backup_name'));
+        if ($backupName !== '' && !$this->isValidSettingsBackupName($backupName)) {
+            $this->backupResponse(false, _t('备份标识格式不正确'), 400);
+            return;
+        }
+
+        if ($backupName !== '') {
+            $backupRow = $this->getSettingsBackupSnapshotByName($backupName);
+            if (!is_array($backupRow) || empty($backupRow)) {
+                $this->backupResponse(false, _t('数据库中没有找到指定备份，请先执行一次备份'), 400);
+                return;
+            }
+
+            $rawPayload = isset($backupRow['value']) ? (string)$backupRow['value'] : '';
+            $errorMessage = '';
+            $settings = $this->parseBackupSettingsPayload($rawPayload, $errorMessage);
+            if (!is_array($settings)) {
+                $this->backupResponse(false, $errorMessage !== '' ? $errorMessage : _t('数据库备份内容解析失败'), 400);
+                return;
+            }
+
+            try {
+                $this->savePluginSettings($settings);
+            } catch (Exception $e) {
+                $this->backupResponse(false, _t('恢复失败：%s', $e->getMessage()), 500);
+                return;
+            }
+
+            $this->backupResponse(true, _t('已从数据库备份恢复成功（%s），共恢复 %d 项配置', $backupName, count($settings)), 200);
+            return;
+        }
+
         $backupRow = $this->getLatestSettingsBackupSnapshot();
         if (!is_array($backupRow) || empty($backupRow)) {
             $this->backupResponse(false, _t('数据库中暂无可恢复的设置备份，请先执行一次备份'), 400);
@@ -302,6 +365,33 @@ class Enhancement_Action extends Typecho_Widget implements Widget_Interface_Do
 
         $backupName = isset($backupRow['name']) ? (string)$backupRow['name'] : '';
         $this->backupResponse(true, _t('已从数据库备份恢复成功（%s），共恢复 %d 项配置', $backupName, count($settings)), 200);
+    }
+
+    public function deletePluginSettingsBackup()
+    {
+        $backupName = trim((string)$this->request->get('backup_name'));
+        if (!$this->isValidSettingsBackupName($backupName)) {
+            $this->backupResponse(false, _t('备份标识格式不正确'), 400);
+            return;
+        }
+
+        $backupRow = $this->getSettingsBackupSnapshotByName($backupName);
+        if (!is_array($backupRow) || empty($backupRow)) {
+            $this->backupResponse(false, _t('未找到要删除的备份记录'), 404);
+            return;
+        }
+
+        try {
+            $this->db->query(
+                $this->db->delete('table.options')
+                    ->where('name = ?', $backupName)
+                    ->where('user = ?', 0)
+            );
+            $total = $this->countSettingsBackupSnapshots();
+            $this->backupResponse(true, _t('备份已删除（%s），当前剩余 %d 份', $backupName, $total), 200);
+        } catch (Exception $e) {
+            $this->backupResponse(false, _t('删除备份失败：%s', $e->getMessage()), 500);
+        }
     }
 
     private function normalizeUrl($url)
@@ -937,6 +1027,14 @@ class Enhancement_Action extends Typecho_Widget implements Widget_Interface_Do
             $user = Typecho_Widget::widget('Widget_User');
             $user->pass('administrator');
             $this->restorePluginSettings();
+            return;
+        }
+
+        if ($this->request->is('do=delete-backup')) {
+            Helper::security()->protect();
+            $user = Typecho_Widget::widget('Widget_User');
+            $user->pass('administrator');
+            $this->deletePluginSettingsBackup();
             return;
         }
 

@@ -5,7 +5,7 @@
  * 具体功能包含:友情链接,瞬间,网站地图,编辑器增强,常见视频链接 音乐链接 解析等
  * @package Enhancement
  * @author jkjoy
- * @version 1.0.8
+ * @version 1.0.9
  * @link HTTPS://IMSUN.ORG
  * @dependence 14.10.10-*
  */
@@ -13,6 +13,39 @@
 class Enhancement_Plugin implements Typecho_Plugin_Interface
 {
     public static $commentNotifierPanel = 'Enhancement/CommentNotifier/console.php';
+
+    private static function settingsBackupNamePrefix()
+    {
+        return 'plugin:Enhancement:backup:';
+    }
+
+    private static function listSettingsBackups($limit = 5)
+    {
+        $limit = intval($limit);
+        if ($limit <= 0) {
+            $limit = 5;
+        }
+        if ($limit > 50) {
+            $limit = 50;
+        }
+
+        try {
+            $db = Typecho_Db::get();
+            $prefix = self::settingsBackupNamePrefix();
+            $rows = $db->fetchAll(
+                $db->select('name')
+                    ->from('table.options')
+                    ->where('name LIKE ?', $prefix . '%')
+                    ->where('user = ?', 0)
+                    ->order('name', Typecho_Db::SORT_DESC)
+                    ->limit($limit)
+            );
+
+            return is_array($rows) ? $rows : array();
+        } catch (Exception $e) {
+            return array();
+        }
+    }
 
     private static function pluginSettings($options = null)
     {
@@ -190,6 +223,39 @@ class Enhancement_Plugin implements Typecho_Plugin_Interface
         gap: 10px;
         align-items: center;
         margin-top: 8px;
+    }
+    .enhancement-backup-list{
+        margin-top: 10px;
+        padding-left: 18px;
+    }
+    .enhancement-backup-list li{
+        margin-bottom: 8px;
+    }
+    .enhancement-backup-item-actions{
+        display: inline-flex;
+        gap: 6px;
+        margin-left: 8px;
+        vertical-align: middle;
+    }
+    .enhancement-backup-inline-btn{
+        padding: 2px 8px;
+        font-size: 12px;
+        line-height: 1.6;
+        border: 1px solid #c9d3f5;
+        border-radius: 4px;
+        background: #fff;
+        color: #334155;
+        cursor: pointer;
+    }
+    .enhancement-backup-inline-btn:hover{
+        background: #f1f5ff;
+    }
+    .enhancement-backup-inline-btn.danger{
+        border-color: #f3c2c2;
+        color: #b42318;
+    }
+    .enhancement-backup-inline-btn.danger:hover{
+        background: #fff1f1;
     }
 </style>';
         echo '<div class="typecho-option" style="margin-top:12px;">
@@ -635,6 +701,41 @@ class Enhancement_Plugin implements Typecho_Plugin_Interface
             . 'if(!window.confirm("确定要从数据库最近一次备份恢复吗？当前设置将被覆盖。")){e.preventDefault();}'
             . '});'
             . '})();</script>';
+
+        $backupRows = self::listSettingsBackups(5);
+        if (!empty($backupRows)) {
+            echo '<div class="typecho-option">'
+                . '<div class="enhancement-backup-box">'
+                . '<p style="margin:0 0 8px;"><strong>' . _t('最近 5 条备份') . '</strong></p>'
+                . '<ol class="enhancement-backup-list">';
+
+            foreach ($backupRows as $row) {
+                $backupName = isset($row['name']) ? trim((string)$row['name']) : '';
+                if ($backupName === '') {
+                    continue;
+                }
+
+                $timeText = $backupName;
+                if (preg_match('/backup:(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})-/', $backupName, $matches)) {
+                    $timeText = $matches[1] . '-' . $matches[2] . '-' . $matches[3] . ' ' . $matches[4] . ':' . $matches[5] . ':' . $matches[6];
+                }
+
+                $restoreByNameUrl = Helper::security()->getIndex('/action/enhancement-edit?do=restore-settings&backup_name=' . rawurlencode($backupName));
+                $deleteByNameUrl = Helper::security()->getIndex('/action/enhancement-edit?do=delete-backup&backup_name=' . rawurlencode($backupName));
+
+                echo '<li>'
+                    . '<code>' . htmlspecialchars($timeText, ENT_QUOTES, 'UTF-8') . '</code>'
+                    . '<span class="enhancement-backup-item-actions">'
+                    . '<button type="submit" class="enhancement-backup-inline-btn" formaction="' . htmlspecialchars($restoreByNameUrl, ENT_QUOTES, 'UTF-8') . '" onclick="return window.confirm(\'确定要恢复这份备份吗？当前设置将被覆盖。\');">' . _t('恢复此份') . '</button>'
+                    . '<button type="submit" class="enhancement-backup-inline-btn danger" formaction="' . htmlspecialchars($deleteByNameUrl, ENT_QUOTES, 'UTF-8') . '" onclick="return window.confirm(\'确定要删除这份备份吗？\');">' . _t('删除') . '</button>'
+                    . '</span>'
+                    . '</li>';
+            }
+
+            echo '</ol>'
+                . '</div>'
+                . '</div>';
+        }
 
         $template = new Typecho_Widget_Helper_Form_Element_Text(
             'template',
