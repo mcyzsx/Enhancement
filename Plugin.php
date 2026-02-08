@@ -260,9 +260,48 @@ class Enhancement_Plugin implements Typecho_Plugin_Interface
     .enhancement-backup-inline-btn.danger:hover{
         background: #fff1f1;
     }
+    .enhancement-action-row{
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 10px;
+        margin-top: 6px;
+    }
+    .enhancement-action-btn{
+        display: inline-flex !important;
+        align-items: center;
+        justify-content: center;
+        height: 32px;
+        line-height: 32px;
+        padding: 0 14px;
+        box-sizing: border-box;
+        text-decoration: none !important;
+        vertical-align: middle;
+    }
+    .enhancement-action-btn:hover,
+    .enhancement-action-btn:focus{
+        text-decoration: none !important;
+    }
+    .enhancement-action-note{
+        color: #666;
+        line-height: 1.6;
+    }
+    .enhancement-option-no-bullet,
+    .enhancement-option-no-bullet li{
+        list-style: none !important;
+        margin: 0;
+        padding: 0;
+    }
+    .enhancement-option-no-bullet .description{
+        margin: 0;
+    }
+    .enhancement-option-no-bullet .description:before{
+        content: none !important;
+        display: none !important;
+    }
 </style>';
         echo '<div class="typecho-option" style="margin-top:12px;">
-            <button type="button" class="btn" id="enhancement-links-help-toggle">帮助</button>
+            <button type="button" class="btn enhancement-action-btn" id="enhancement-links-help-toggle" style="display:none;">帮助</button>
             <div id="enhancement-links-help" style="display:none; margin-top:10px;">
                 <p>【管理】→【友情链接】进入审核页面。</p>
                 <p>友链支持后台审核与前台提交。</p>
@@ -336,6 +375,16 @@ class Enhancement_Plugin implements Typecho_Plugin_Interface
             btn.addEventListener("click", function () {
                 panel.style.display = panel.style.display === "none" ? "block" : "none";
             });
+
+            var inlineBtn = document.getElementById("enhancement-links-help-trigger-inline");
+            if (inlineBtn) {
+                inlineBtn.addEventListener("click", function () {
+                    btn.click();
+                    if (btn.scrollIntoView) {
+                        btn.scrollIntoView({behavior: "smooth", block: "center"});
+                    }
+                });
+            }
         })();
         </script>';
         $pattern_text = new Typecho_Widget_Helper_Form_Element_Textarea(
@@ -490,24 +539,6 @@ class Enhancement_Plugin implements Typecho_Plugin_Interface
         $turnstileSecretKey->input->setAttribute('autocomplete', 'off');
         $form->addInput($turnstileSecretKey->addRule('maxLength', _t('Secret Key 最多200个字符'), 200));
 
-        $enableCommentByQQ = new Typecho_Widget_Helper_Form_Element_Radio(
-            'enable_comment_by_qq',
-            array('1' => _t('启用'), '0' => _t('禁用')),
-            '0',
-            _t('QQ评论通知'),
-            _t('评论通过时通过 QQ 机器人推送通知')
-        );
-        $form->addInput($enableCommentByQQ);
-
-        $enableCommentNotifier = new Typecho_Widget_Helper_Form_Element_Radio(
-            'enable_comment_notifier',
-            array('1' => _t('启用'), '0' => _t('禁用')),
-            '0',
-            _t('评论邮件提醒'),
-            _t('评论通过/回复时发送邮件提醒')
-        );
-        $form->addInput($enableCommentNotifier);
-
         $enableAvatarMirror = new Typecho_Widget_Helper_Form_Element_Radio(
             'enable_avatar_mirror',
             array('1' => _t('启用'), '0' => _t('禁用')),
@@ -526,6 +557,15 @@ class Enhancement_Plugin implements Typecho_Plugin_Interface
         );
         $form->addInput($avatarMirrorUrl->addRule('maxLength', _t('地址最多200个字符'), 200));
 
+        $enableCommentByQQ = new Typecho_Widget_Helper_Form_Element_Radio(
+            'enable_comment_by_qq',
+            array('1' => _t('启用'), '0' => _t('禁用')),
+            '0',
+            _t('<h3 class="enhancement-title">QQ 通知设置</h3>QQ评论通知'),
+            _t('评论通过时通过 QQ 机器人推送通知')
+        );
+        $form->addInput($enableCommentByQQ);
+
         $defaultQqApi = defined('__TYPECHO_COMMENT_BY_QQ_API_URL__')
             ? __TYPECHO_COMMENT_BY_QQ_API_URL__
             : 'https://bot.asbid.cn';
@@ -533,7 +573,7 @@ class Enhancement_Plugin implements Typecho_Plugin_Interface
             'qq',
             null,
             '',
-            _t('<h3 class="enhancement-title">QQ 通知设置</h3>接收通知的QQ号'),
+            _t('接收通知的QQ号'),
             _t('需要接收通知的QQ号码')
         );
         $form->addInput($qq);
@@ -543,23 +583,39 @@ class Enhancement_Plugin implements Typecho_Plugin_Interface
             null,
             $defaultQqApi,
             _t('机器人API地址'),
-            _t('默认：') . $defaultQqApi
+            _t('<p>使用默认API需添加QQ机器人 153985848 为好友</p>默认API：') . $defaultQqApi
         );
         $form->addInput($qqboturl);
 
         $qqTestNotifyUrl = Helper::security()->getIndex('/action/enhancement-edit?do=qq-test-notify');
-        echo '<div class="typecho-option">'
-            . '<p style="margin:6px 0 0;">'
-            . '<a class="btn" href="' . htmlspecialchars($qqTestNotifyUrl, ENT_QUOTES, 'UTF-8') . '">' . _t('发送QQ通知测试') . '</a>'
-            . '<span style="margin-left:10px;color:#666;">' . _t('保存好 QQ 号与机器人 API 后，点此测试是否可收到消息') . '</span>'
-            . '</p>'
-            . '</div>';
+        $qqActionRow = new Typecho_Widget_Helper_Form_Element_Fake('qq_action_row', null);
+        $qqActionRow->setAttribute('class', 'typecho-option enhancement-option-no-bullet');
+        $qqActionRow->input->setAttribute('type', 'hidden');
+        $qqActionRow->description(
+            '<div class="enhancement-action-row">'
+            . '<a class="btn enhancement-action-btn" href="' . htmlspecialchars($qqTestNotifyUrl, ENT_QUOTES, 'UTF-8') . '">' . _t('发送QQ通知测试') . '</a>'
+            . '<span class="enhancement-action-note">' . _t('先保存好 QQ 号与机器人 API 设置后,再点击测试') . '</span>'
+            . '</div>'
+        );
+        if (isset($qqActionRow->container)) {
+            $qqActionRow->container->setAttribute('style', 'list-style:none;margin:0;padding:0;');
+        }
+        $form->addInput($qqActionRow);
+
+        $enableCommentNotifier = new Typecho_Widget_Helper_Form_Element_Radio(
+            'enable_comment_notifier',
+            array('1' => _t('启用'), '0' => _t('禁用')),
+            '0',
+            _t('<h3 class="enhancement-title">邮件提醒设置（SMTP）</h3>评论邮件提醒'),
+            _t('评论通过/回复时发送邮件提醒')
+        );
+        $form->addInput($enableCommentNotifier);
 
         $fromName = new Typecho_Widget_Helper_Form_Element_Text(
             'fromName',
             null,
             null,
-            _t('<h3 class="enhancement-title">邮件提醒设置（SMTP）</h3>发件人昵称'),
+            _t('发件人昵称'),
             _t('邮件显示的发件人昵称')
         );
         $form->addInput($fromName);
@@ -696,9 +752,9 @@ class Enhancement_Plugin implements Typecho_Plugin_Interface
         echo '<div class="typecho-option">'
             . '<h3 class="enhancement-title">设置备份</h3>'
             . '<div class="enhancement-backup-box">'
-            . '<p style="margin:0;">备份将直接保存到数据库。恢复请在下方列表中指定具体备份。</p>'
+            . '<p style="margin:0;">备份本插件的设置内容,将直接保存到数据库。方便下次启用插件时快速恢复设置。</p>'
             . '<div class="enhancement-backup-actions">'
-            . '<a class="btn" href="' . htmlspecialchars($backupUrl, ENT_QUOTES, 'UTF-8') . '">' . _t('备份插件设置') . '</a>'
+            . '<a class="btn enhancement-action-btn" href="' . htmlspecialchars($backupUrl, ENT_QUOTES, 'UTF-8') . '">' . _t('备份插件设置') . '</a>'
             . '</div>'
             . '</div>'
             . '</div>';
