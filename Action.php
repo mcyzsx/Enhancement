@@ -317,6 +317,110 @@ class Enhancement_Action extends Typecho_Widget implements Widget_Interface_Do
         $this->response->goBack();
     }
 
+    private function qqTestResponse($success, $message, $statusCode = 200)
+    {
+        $statusCode = intval($statusCode);
+        if ($statusCode > 0) {
+            $this->response->setStatus($statusCode);
+        }
+
+        if ($this->request->isAjax()) {
+            $this->response->throwJson(array(
+                'success' => (bool)$success,
+                'message' => (string)$message
+            ));
+            return;
+        }
+
+        $this->widget('Widget_Notice')->set(
+            (string)$message,
+            null,
+            $success ? 'success' : 'error'
+        );
+        $this->response->goBack();
+    }
+
+    public function sendQqTestNotify()
+    {
+        $settings = $this->collectPluginSettings();
+        $apiUrl = isset($settings['qqboturl']) ? trim((string)$settings['qqboturl']) : '';
+        $qqNum = isset($settings['qq']) ? trim((string)$settings['qq']) : '';
+
+        if ($apiUrl === '' || $qqNum === '') {
+            $this->qqTestResponse(false, _t('QQ通知测试失败：请先填写 QQ 号 与 机器人 API 地址'), 400);
+            return;
+        }
+
+        if (!function_exists('curl_init')) {
+            $this->qqTestResponse(false, _t('QQ通知测试失败：当前环境缺少 cURL 扩展'), 500);
+            return;
+        }
+
+        $siteUrl = isset($this->options->siteUrl) ? trim((string)$this->options->siteUrl) : '';
+        $message = sprintf(
+            "【QQ通知测试】\n"
+            . "站点：%s\n"
+            . "时间：%s\n"
+            . "如果收到此消息，说明 QQ 通知配置可用。",
+            $siteUrl !== '' ? $siteUrl : 'unknown',
+            date('Y-m-d H:i:s')
+        );
+
+        $payload = array(
+            'user_id' => (int)$qqNum,
+            'message' => $message
+        );
+
+        $endpoint = rtrim($apiUrl, '/') . '/send_msg';
+        $ch = curl_init();
+        curl_setopt_array($ch, array(
+            CURLOPT_URL => $endpoint,
+            CURLOPT_POST => true,
+            CURLOPT_POSTFIELDS => json_encode($payload, JSON_UNESCAPED_UNICODE),
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT => 10,
+            CURLOPT_HTTPHEADER => array(
+                'Content-Type: application/json; charset=UTF-8',
+                'Accept: application/json'
+            ),
+            CURLOPT_SSL_VERIFYPEER => false
+        ));
+
+        $response = curl_exec($ch);
+        $httpCode = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+
+        if (curl_errno($ch)) {
+            $error = curl_error($ch);
+            curl_close($ch);
+            $this->qqTestResponse(false, _t('QQ通知测试失败：%s', $error), 500);
+            return;
+        }
+
+        curl_close($ch);
+
+        $decoded = json_decode((string)$response, true);
+        $isOk = ($httpCode >= 200 && $httpCode < 300);
+        if (is_array($decoded)) {
+            if (isset($decoded['status'])) {
+                $isOk = $isOk && strtolower((string)$decoded['status']) === 'ok';
+            }
+            if (isset($decoded['retcode'])) {
+                $isOk = $isOk && intval($decoded['retcode']) === 0;
+            }
+        }
+
+        if ($isOk) {
+            $this->qqTestResponse(true, _t('QQ通知测试发送成功，请检查 QQ 是否收到消息。'), 200);
+            return;
+        }
+
+        $bodyPreview = substr(trim((string)$response), 0, 300);
+        if ($bodyPreview === '') {
+            $bodyPreview = _t('empty response');
+        }
+        $this->qqTestResponse(false, _t('QQ通知测试失败（HTTP %d）：%s', $httpCode, $bodyPreview), 500);
+    }
+
     public function backupPluginSettings()
     {
         $settings = $this->collectPluginSettings();
@@ -1056,6 +1160,14 @@ class Enhancement_Action extends Typecho_Widget implements Widget_Interface_Do
             $user = Typecho_Widget::widget('Widget_User');
             $user->pass('administrator');
             $this->deletePluginSettingsBackup();
+            return;
+        }
+
+        if ($this->request->is('do=qq-test-notify')) {
+            Helper::security()->protect();
+            $user = Typecho_Widget::widget('Widget_User');
+            $user->pass('administrator');
+            $this->sendQqTestNotify();
             return;
         }
 

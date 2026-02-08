@@ -1,11 +1,11 @@
-<?php
+﻿<?php
 
 /**
  * Enhancement 插件
  * 具体功能包含:友情链接,瞬间,网站地图,编辑器增强,常见视频链接 音乐链接 解析等
  * @package Enhancement
  * @author jkjoy
- * @version 1.0.9
+ * @version 1.1.0
  * @link HTTPS://IMSUN.ORG
  * @dependence 14.10.10-*
  */
@@ -89,6 +89,7 @@ class Enhancement_Plugin implements Typecho_Plugin_Interface
         Typecho_Plugin::factory('Widget_Feedback')->finishComment = [__CLASS__, 'finishComment'];
         Typecho_Plugin::factory('Widget_Comments_Edit')->finishComment = [__CLASS__, 'finishComment'];
         Typecho_Plugin::factory('Widget_Comments_Edit')->mark = [__CLASS__, 'commentNotifierMark'];
+        Typecho_Plugin::factory('Widget_Comments_Edit')->mark_2 = [__CLASS__, 'commentByQQMark'];
         Typecho_Plugin::factory('Widget_Service')->send = [__CLASS__, 'commentNotifierSend'];
         Typecho_Plugin::factory('admin/write-post.php')->bottom = array(__CLASS__, 'writePostBottom');
         Typecho_Plugin::factory('admin/write-page.php')->bottom = array(__CLASS__, 'writePageBottom');
@@ -546,6 +547,14 @@ class Enhancement_Plugin implements Typecho_Plugin_Interface
         );
         $form->addInput($qqboturl);
 
+        $qqTestNotifyUrl = Helper::security()->getIndex('/action/enhancement-edit?do=qq-test-notify');
+        echo '<div class="typecho-option">'
+            . '<p style="margin:6px 0 0;">'
+            . '<a class="btn" href="' . htmlspecialchars($qqTestNotifyUrl, ENT_QUOTES, 'UTF-8') . '">' . _t('发送QQ通知测试') . '</a>'
+            . '<span style="margin-left:10px;color:#666;">' . _t('保存好 QQ 号与机器人 API 后，点此测试是否可收到消息') . '</span>'
+            . '</p>'
+            . '</div>';
+
         $fromName = new Typecho_Widget_Helper_Form_Element_Text(
             'fromName',
             null,
@@ -689,7 +698,7 @@ class Enhancement_Plugin implements Typecho_Plugin_Interface
             . '<div class="enhancement-backup-box">'
             . '<p style="margin:0;">备份将直接保存到数据库。恢复请在下方列表中指定具体备份。</p>'
             . '<div class="enhancement-backup-actions">'
-            . '<a class="btn" href="' . htmlspecialchars($backupUrl, ENT_QUOTES, 'UTF-8') . '">' . _t('一键备份到数据库') . '</a>'
+            . '<a class="btn" href="' . htmlspecialchars($backupUrl, ENT_QUOTES, 'UTF-8') . '">' . _t('备份插件设置') . '</a>'
             . '</div>'
             . '</div>'
             . '</div>';
@@ -1479,12 +1488,31 @@ class Enhancement_Plugin implements Typecho_Plugin_Interface
         return $comment;
     }
 
-    public static function commentByQQ($comment)
+    public static function commentByQQMark($comment, $edit, $status)
+    {
+        $status = trim((string)$status);
+        if ($status !== 'approved') {
+            return;
+        }
+
+        $options = Typecho_Widget::widget('Widget_Options');
+        $settings = self::pluginSettings($options);
+        if (!isset($settings->enable_comment_by_qq) || $settings->enable_comment_by_qq != '1') {
+            return;
+        }
+
+        self::commentByQQ($edit, 'approved');
+    }
+
+    public static function commentByQQ($comment, $statusOverride = null)
     {
         $options = Typecho_Widget::widget('Widget_Options');
         $settings = self::pluginSettings($options);
 
-        if ($comment->status != 'approved') {
+        $status = $statusOverride !== null
+            ? trim((string)$statusOverride)
+            : (isset($comment->status) ? trim((string)$comment->status) : '');
+        if ($status !== 'approved') {
             return;
         }
 
