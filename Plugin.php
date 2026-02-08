@@ -1,11 +1,11 @@
-<?php
+﻿<?php
 
 /**
  * Enhancement 插件
- * 具体功能包含:友情链接,瞬间,网站地图,编辑器增强等
+ * 具体功能包含:友情链接,瞬间,网站地图,编辑器增强,常见视频链接 音乐链接 解析等
  * @package Enhancement
  * @author jkjoy
- * @version 1.0.4
+ * @version 1.1.1
  * @link HTTPS://IMSUN.ORG
  * @dependence 14.10.10-*
  */
@@ -13,6 +13,58 @@
 class Enhancement_Plugin implements Typecho_Plugin_Interface
 {
     public static $commentNotifierPanel = 'Enhancement/CommentNotifier/console.php';
+
+    private static function settingsBackupNamePrefix()
+    {
+        return 'plugin:Enhancement:backup:';
+    }
+
+    private static function listSettingsBackups($limit = 5)
+    {
+        $limit = intval($limit);
+        if ($limit <= 0) {
+            $limit = 5;
+        }
+        if ($limit > 50) {
+            $limit = 50;
+        }
+
+        try {
+            $db = Typecho_Db::get();
+            $prefix = self::settingsBackupNamePrefix();
+            $rows = $db->fetchAll(
+                $db->select('name')
+                    ->from('table.options')
+                    ->where('name LIKE ?', $prefix . '%')
+                    ->where('user = ?', 0)
+                    ->order('name', Typecho_Db::SORT_DESC)
+                    ->limit($limit)
+            );
+
+            return is_array($rows) ? $rows : array();
+        } catch (Exception $e) {
+            return array();
+        }
+    }
+
+    private static function pluginSettings($options = null)
+    {
+        if ($options === null) {
+            $options = Typecho_Widget::widget('Widget_Options');
+        }
+
+        try {
+            $settings = $options->plugin('Enhancement');
+            if (is_object($settings)) {
+                return $settings;
+            }
+        } catch (Exception $e) {
+            // 配置缺失时返回空配置，避免前台致命错误
+        }
+
+        return (object) array();
+    }
+
     /**
      * 激活插件方法,如果激活失败,直接抛出异常
      * 
@@ -30,13 +82,17 @@ class Enhancement_Plugin implements Typecho_Plugin_Interface
         Helper::addRoute('sitemap', '/sitemap.xml', 'Enhancement_Sitemap_Action', 'action');
         Helper::addRoute('memos_api', '/api/v1/memos', 'Enhancement_Memos_Action', 'action');
         Helper::addRoute('zemail', '/zemail', 'Enhancement_CommentNotifier_Action', 'action');
+        Helper::addRoute('go', '/go/[target]', 'Enhancement_Action', 'goRedirect');
         Helper::addAction('enhancement-edit', 'Enhancement_Action');
         Helper::addAction('enhancement-submit', 'Enhancement_Action');
         Helper::addAction('enhancement-moments-edit', 'Enhancement_Action');
         Helper::addAction('enhancement-equipment', 'Enhancement_Equipment_Action');
+
+        Typecho_Plugin::factory('Widget_Feedback')->comment_1 = [__CLASS__, 'turnstileFilterComment'];
         Typecho_Plugin::factory('Widget_Feedback')->finishComment = [__CLASS__, 'finishComment'];
         Typecho_Plugin::factory('Widget_Comments_Edit')->finishComment = [__CLASS__, 'finishComment'];
         Typecho_Plugin::factory('Widget_Comments_Edit')->mark = [__CLASS__, 'commentNotifierMark'];
+        Typecho_Plugin::factory('Widget_Comments_Edit')->mark_2 = [__CLASS__, 'commentByQQMark'];
         Typecho_Plugin::factory('Widget_Service')->send = [__CLASS__, 'commentNotifierSend'];
         Typecho_Plugin::factory('admin/write-post.php')->bottom = array(__CLASS__, 'writePostBottom');
         Typecho_Plugin::factory('admin/write-page.php')->bottom = array(__CLASS__, 'writePageBottom');
@@ -44,6 +100,7 @@ class Enhancement_Plugin implements Typecho_Plugin_Interface
         Typecho_Plugin::factory('Widget_Abstract_Contents')->excerptEx = array('Enhancement_Plugin', 'parse');
         Typecho_Plugin::factory('Widget_Abstract_Comments')->contentEx = array('Enhancement_Plugin', 'parse');
         Typecho_Plugin::factory('Widget_Archive')->handleInit = array('Enhancement_Plugin', 'applyAvatarPrefix');
+        Typecho_Plugin::factory('Widget_Archive')->footer = array('Enhancement_Plugin', 'turnstileFooter');
         Typecho_Plugin::factory('Widget_Archive')->callEnhancement = array('Enhancement_Plugin', 'output_str');
         return _t($info);
     }
@@ -59,12 +116,24 @@ class Enhancement_Plugin implements Typecho_Plugin_Interface
     public static function deactivate()
     {
         $options = Typecho_Widget::widget('Widget_Options');
-        $settings = $options->plugin('Enhancement');
-        $deleteTables = isset($settings->delete_tables_on_deactivate) && $settings->delete_tables_on_deactivate == '1';
+        $settings = self::pluginSettings($options);
+        $legacyDeleteTables = isset($settings->delete_tables_on_deactivate) && $settings->delete_tables_on_deactivate == '1';
+        $deleteLinksTable = isset($settings->delete_links_table_on_deactivate) && $settings->delete_links_table_on_deactivate == '1';
+        $deleteMomentsTable = isset($settings->delete_moments_table_on_deactivate) && $settings->delete_moments_table_on_deactivate == '1';
+
+        if ($legacyDeleteTables) {
+            if (!isset($settings->delete_links_table_on_deactivate)) {
+                $deleteLinksTable = true;
+            }
+            if (!isset($settings->delete_moments_table_on_deactivate)) {
+                $deleteMomentsTable = true;
+            }
+        }
 
         Helper::removeRoute('sitemap');
         Helper::removeRoute('memos_api');
         Helper::removeRoute('zemail');
+        Helper::removeRoute('go');
         Helper::removeAction('enhancement-edit');
         Helper::removeAction('enhancement-submit');
         Helper::removeAction('enhancement-moments-edit');
@@ -73,7 +142,7 @@ class Enhancement_Plugin implements Typecho_Plugin_Interface
         Helper::removePanel(3, 'Enhancement/manage-equipment.php');
         Helper::removePanel(1, self::$commentNotifierPanel);
 
-        if ($deleteTables) {
+        if ($deleteLinksTable || $deleteMomentsTable) {
             $db = Typecho_Db::get();
             $prefix = $db->getPrefix();
             $type = explode('_', $db->getAdapterName());
@@ -81,11 +150,19 @@ class Enhancement_Plugin implements Typecho_Plugin_Interface
 
             try {
                 if ('Pgsql' == $type) {
-                    $db->query('DROP TABLE IF EXISTS "' . $prefix . 'links"');
-                    $db->query('DROP TABLE IF EXISTS "' . $prefix . 'moments"');
+                    if ($deleteLinksTable) {
+                        $db->query('DROP TABLE IF EXISTS "' . $prefix . 'links"');
+                    }
+                    if ($deleteMomentsTable) {
+                        $db->query('DROP TABLE IF EXISTS "' . $prefix . 'moments"');
+                    }
                 } else {
-                    $db->query('DROP TABLE IF EXISTS `' . $prefix . 'links`');
-                    $db->query('DROP TABLE IF EXISTS `' . $prefix . 'moments`');
+                    if ($deleteLinksTable) {
+                        $db->query('DROP TABLE IF EXISTS `' . $prefix . 'links`');
+                    }
+                    if ($deleteMomentsTable) {
+                        $db->query('DROP TABLE IF EXISTS `' . $prefix . 'moments`');
+                    }
                 }
             } catch (Exception $e) {
                 // ignore drop errors on deactivate
@@ -137,6 +214,55 @@ class Enhancement_Plugin implements Typecho_Plugin_Interface
         content: "# ";
         font-size:1em;
         color: #c82609;
+    }
+    .enhancement-backup-box{
+        margin-top: 12px;
+        padding: 12px;
+        border: 1px solid #e3e3e3;
+        border-radius: 6px;
+        background: #fafbff;
+    }
+    .enhancement-backup-actions{
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        align-items: center;
+        margin-top: 8px;
+    }
+    .enhancement-backup-list{
+        margin-top: 10px;
+        padding-left: 18px;
+    }
+    .enhancement-backup-list li{
+        margin-bottom: 8px;
+    }
+    .enhancement-backup-item-actions{
+        display: inline-flex;
+        gap: 6px;
+        margin-left: 8px;
+        vertical-align: middle;
+    }
+    .enhancement-backup-inline-btn{
+        display: inline-block;
+        padding: 2px 8px;
+        font-size: 12px;
+        line-height: 1.6;
+        border: 1px solid #c9d3f5;
+        border-radius: 4px;
+        background: #fff;
+        color: #334155;
+        text-decoration: none;
+        cursor: pointer;
+    }
+    .enhancement-backup-inline-btn:hover{
+        background: #f1f5ff;
+    }
+    .enhancement-backup-inline-btn.danger{
+        border-color: #f3c2c2;
+        color: #b42318;
+    }
+    .enhancement-backup-inline-btn.danger:hover{
+        background: #fff1f1;
     }
 </style>';
         echo '<div class="typecho-option" style="margin-top:12px;">
@@ -295,6 +421,79 @@ class Enhancement_Plugin implements Typecho_Plugin_Interface
         );
         $form->addInput($enableSitemap);
 
+        $enableVideoParser = new Typecho_Widget_Helper_Form_Element_Radio(
+            'enable_video_parser',
+            array('1' => _t('启用'), '0' => _t('禁用')),
+            '0',
+            _t('视频链接解析'),
+            _t('将 YouTube、Bilibili、优酷链接自动替换为播放器')
+        );
+        $form->addInput($enableVideoParser);
+
+        $enableBlankTarget = new Typecho_Widget_Helper_Form_Element_Radio(
+            'enable_blank_target',
+            array('1' => _t('启用'), '0' => _t('禁用')),
+            '0',
+            _t('外链新窗口打开'),
+            _t('给文章内容中的 a 标签添加 target="_blank" 与 rel="noopener noreferrer"')
+        );
+        $form->addInput($enableBlankTarget);
+
+        $enableGoRedirect = new Typecho_Widget_Helper_Form_Element_Radio(
+            'enable_go_redirect',
+            array('1' => _t('启用'), '0' => _t('禁用')),
+            '1',
+            _t('外链 go 跳转'),
+            _t('启用后文章、评论与评论者网站外链统一使用 /go/xxx 跳转页')
+        );
+        $form->addInput($enableGoRedirect);
+
+        $goRedirectWhitelist = new Typecho_Widget_Helper_Form_Element_Textarea(
+            'go_redirect_whitelist',
+            null,
+            '',
+            _t('外链跳转白名单'),
+            _t('白名单域名不使用 go 跳转；支持一行一个或逗号分隔，如 example.com, github.com')
+        );
+        $form->addInput($goRedirectWhitelist->addRule('maxLength', _t('白名单最多2000个字符'), 2000));
+
+        $enableTurnstile = new Typecho_Widget_Helper_Form_Element_Radio(
+            'enable_turnstile',
+            array('1' => _t('启用'), '0' => _t('禁用')),
+            '0',
+            _t('<h3 class="enhancement-title">安全设置</h3>Turnstile 人机验证'),
+            _t('统一保护评论提交与友情链接提交')
+        );
+        $form->addInput($enableTurnstile);
+
+        $turnstileCommentGuestOnly = new Typecho_Widget_Helper_Form_Element_Radio(
+            'turnstile_comment_guest_only',
+            array('1' => _t('是'), '0' => _t('否（所有评论都验证）')),
+            '1',
+            _t('仅游客评论启用 Turnstile'),
+            _t('开启后登录用户评论无需验证，游客评论仍需通过验证')
+        );
+        $form->addInput($turnstileCommentGuestOnly);
+
+        $turnstileSiteKey = new Typecho_Widget_Helper_Form_Element_Text(
+            'turnstile_site_key',
+            null,
+            '',
+            _t('Turnstile Site Key'),
+            _t('Cloudflare 控制台中的可公开站点密钥')
+        );
+        $form->addInput($turnstileSiteKey->addRule('maxLength', _t('Site Key 最多200个字符'), 200));
+
+        $turnstileSecretKey = new Typecho_Widget_Helper_Form_Element_Text(
+            'turnstile_secret_key',
+            null,
+            '',
+            _t('Turnstile Secret Key'),
+            _t('Cloudflare 控制台中的私钥（仅服务端校验使用）')
+        );
+        $turnstileSecretKey->input->setAttribute('autocomplete', 'off');
+        $form->addInput($turnstileSecretKey->addRule('maxLength', _t('Secret Key 最多200个字符'), 200));
+
         $enableCommentByQQ = new Typecho_Widget_Helper_Form_Element_Radio(
             'enable_comment_by_qq',
             array('1' => _t('启用'), '0' => _t('禁用')),
@@ -351,6 +550,14 @@ class Enhancement_Plugin implements Typecho_Plugin_Interface
             _t('默认：') . $defaultQqApi
         );
         $form->addInput($qqboturl);
+
+        $qqTestNotifyUrl = Helper::security()->getIndex('/action/enhancement-edit?do=qq-test-notify');
+        echo '<div class="typecho-option">'
+            . '<p style="margin:6px 0 0;">'
+            . '<a class="btn" href="' . htmlspecialchars($qqTestNotifyUrl, ENT_QUOTES, 'UTF-8') . '">' . _t('发送QQ通知测试') . '</a>'
+            . '<span style="margin-left:10px;color:#666;">' . _t('保存好 QQ 号与机器人 API 后，点此测试是否可收到消息') . '</span>'
+            . '</p>'
+            . '</div>';
 
         $fromName = new Typecho_Widget_Helper_Form_Element_Text(
             'fromName',
@@ -465,14 +672,75 @@ class Enhancement_Plugin implements Typecho_Plugin_Interface
         );
         $form->addInput($biaoqing);
 
-        $deleteTables = new Typecho_Widget_Helper_Form_Element_Radio(
-            'delete_tables_on_deactivate',
+        $options = Typecho_Widget::widget('Widget_Options');
+        $settings = self::pluginSettings($options);
+        $legacyDeleteTables = isset($settings->delete_tables_on_deactivate) && $settings->delete_tables_on_deactivate == '1';
+        $deleteLinksDefault = $legacyDeleteTables ? '1' : '0';
+        $deleteMomentsDefault = $legacyDeleteTables ? '1' : '0';
+
+        $deleteLinksTable = new Typecho_Widget_Helper_Form_Element_Radio(
+            'delete_links_table_on_deactivate',
             array('0' => _t('否（不删除）'), '1' => _t('是（删除）')),
-            '0',
-            _t('<h3 class="enhancement-title">维护设置</h3>禁用插件时删除数据表'),
-            _t('谨慎开启，会删除 links 与 moments 表数据')
+            $deleteLinksDefault,
+            _t('<h3 class="enhancement-title">维护设置</h3>禁用插件时删除友情链接表（links）'),
+            _t('谨慎开启，会删除 links 表数据')
         );
-        $form->addInput($deleteTables);
+        $form->addInput($deleteLinksTable);
+
+        $deleteMomentsTable = new Typecho_Widget_Helper_Form_Element_Radio(
+            'delete_moments_table_on_deactivate',
+            array('0' => _t('否（不删除）'), '1' => _t('是（删除）')),
+            $deleteMomentsDefault,
+            _t('禁用插件时删除说说表（moments）'),
+            _t('谨慎开启，会删除 moments 表数据')
+        );
+        $form->addInput($deleteMomentsTable);
+
+        $backupUrl = Helper::security()->getIndex('/action/enhancement-edit?do=backup-settings');
+        echo '<div class="typecho-option">'
+            . '<h3 class="enhancement-title">设置备份</h3>'
+            . '<div class="enhancement-backup-box">'
+            . '<p style="margin:0;">备份将直接保存到数据库。恢复请在下方列表中指定具体备份。</p>'
+            . '<div class="enhancement-backup-actions">'
+            . '<a class="btn" href="' . htmlspecialchars($backupUrl, ENT_QUOTES, 'UTF-8') . '">' . _t('备份插件设置') . '</a>'
+            . '</div>'
+            . '</div>'
+            . '</div>';
+
+        $backupRows = self::listSettingsBackups(5);
+        if (!empty($backupRows)) {
+            echo '<div class="typecho-option">'
+                . '<div class="enhancement-backup-box">'
+                . '<p style="margin:0 0 8px;"><strong>' . _t('最近 5 条备份') . '</strong></p>'
+                . '<ol class="enhancement-backup-list">';
+
+            foreach ($backupRows as $row) {
+                $backupName = isset($row['name']) ? trim((string)$row['name']) : '';
+                if ($backupName === '') {
+                    continue;
+                }
+
+                $timeText = $backupName;
+                if (preg_match('/backup:(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})-/', $backupName, $matches)) {
+                    $timeText = $matches[1] . '-' . $matches[2] . '-' . $matches[3] . ' ' . $matches[4] . ':' . $matches[5] . ':' . $matches[6];
+                }
+
+                $restoreByNameUrl = Helper::security()->getIndex('/action/enhancement-edit?do=restore-settings&backup_name=' . $backupName);
+                $deleteByNameUrl = Helper::security()->getIndex('/action/enhancement-edit?do=delete-backup&backup_name=' . $backupName);
+
+                echo '<li>'
+                    . '<code>' . htmlspecialchars($timeText, ENT_QUOTES, 'UTF-8') . '</code>'
+                    . '<span class="enhancement-backup-item-actions">'
+                    . '<a class="enhancement-backup-inline-btn" href="' . htmlspecialchars($restoreByNameUrl, ENT_QUOTES, 'UTF-8') . '" onclick="return window.confirm(\'确定要恢复这份备份吗？当前设置将被覆盖。\');">' . _t('恢复此份') . '</a>'
+                    . '<a class="enhancement-backup-inline-btn danger" href="' . htmlspecialchars($deleteByNameUrl, ENT_QUOTES, 'UTF-8') . '" onclick="return window.confirm(\'确定要删除这份备份吗？\');">' . _t('删除') . '</a>'
+                    . '</span>'
+                    . '</li>';
+            }
+
+            echo '</ol>'
+                . '</div>'
+                . '</div>';
+        }
 
         $template = new Typecho_Widget_Helper_Form_Element_Text(
             'template',
@@ -635,8 +903,10 @@ class Enhancement_Plugin implements Typecho_Plugin_Interface
             $name->addRule('required', _t('必须填写友链名称'));
             $url->addRule('required', _t('必须填写友链地址'));
             $url->addRule('url', _t('不是一个合法的链接地址'));
+            $url->addRule(array('Enhancement_Plugin', 'validateHttpUrl'), _t('友链地址仅支持 http:// 或 https://'));
             $email->addRule('email', _t('不是一个合法的邮箱地址'));
             $image->addRule('url', _t('不是一个合法的图片地址'));
+            $image->addRule(array('Enhancement_Plugin', 'validateOptionalHttpUrl'), _t('友链图片仅支持 http:// 或 https://'));
             $name->addRule('maxLength', _t('友链名称最多包含50个字符'), 50);
             $url->addRule('maxLength', _t('友链地址最多包含200个字符'), 200);
             $sort->addRule('maxLength', _t('友链分类最多包含50个字符'), 50);
@@ -658,6 +928,8 @@ class Enhancement_Plugin implements Typecho_Plugin_Interface
             Helper::security()->getIndex('/action/enhancement-submit'),
             Typecho_Widget_Helper_Form::POST_METHOD
         );
+        $form->setAttribute('class', 'enhancement-public-form');
+        $form->setAttribute('data-enhancement-form', 'link-submit');
 
         $name = new Typecho_Widget_Helper_Form_Element_Text('name', null, null, _t('友链名称*'));
         $form->addInput($name);
@@ -680,6 +952,13 @@ class Enhancement_Plugin implements Typecho_Plugin_Interface
         $user = new Typecho_Widget_Helper_Form_Element_Text('user', null, null, _t('自定义数据'), _t('该项用于用户自定义数据扩展'));
         $form->addInput($user);
 
+        $honeypot = new Typecho_Widget_Helper_Form_Element_Text('homepage', null, '', _t('网站'), _t('请勿填写此字段'));
+        $honeypot->setAttribute('class', 'hidden');
+        $honeypot->input->setAttribute('style', 'display:none !important;');
+        $honeypot->input->setAttribute('tabindex', '-1');
+        $honeypot->input->setAttribute('autocomplete', 'off');
+        $form->addInput($honeypot);
+
         $do = new Typecho_Widget_Helper_Form_Element_Hidden('do');
         $do->value('submit');
         $form->addInput($do);
@@ -692,8 +971,10 @@ class Enhancement_Plugin implements Typecho_Plugin_Interface
         $name->addRule('required', _t('必须填写友链名称'));
         $url->addRule('required', _t('必须填写友链地址'));
         $url->addRule('url', _t('不是一个合法的链接地址'));
+        $url->addRule(array('Enhancement_Plugin', 'validateHttpUrl'), _t('友链地址仅支持 http:// 或 https://'));
         $email->addRule('email', _t('不是一个合法的邮箱地址'));
         $image->addRule('url', _t('不是一个合法的图片地址'));
+        $image->addRule(array('Enhancement_Plugin', 'validateOptionalHttpUrl'), _t('友链图片仅支持 http:// 或 https://'));
         $name->addRule('maxLength', _t('友链名称最多包含50个字符'), 50);
         $url->addRule('maxLength', _t('友链地址最多包含200个字符'), 200);
         $sort->addRule('maxLength', _t('友链分类最多包含50个字符'), 50);
@@ -782,6 +1063,30 @@ class Enhancement_Plugin implements Typecho_Plugin_Interface
         return $item ? true : false;
     }
 
+    public static function validateHttpUrl($url)
+    {
+        $url = trim((string)$url);
+        if ($url === '') {
+            return false;
+        }
+
+        if (!filter_var($url, FILTER_VALIDATE_URL)) {
+            return false;
+        }
+
+        $scheme = strtolower((string)parse_url($url, PHP_URL_SCHEME));
+        return in_array($scheme, array('http', 'https'), true);
+    }
+
+    public static function validateOptionalHttpUrl($url)
+    {
+        $url = trim((string)$url);
+        if ($url === '') {
+            return true;
+        }
+        return self::validateHttpUrl($url);
+    }
+
     public static function extractMediaFromContent($content, &$cleanedContent = null)
     {
         if (!is_string($content) || $content === '') {
@@ -852,7 +1157,7 @@ class Enhancement_Plugin implements Typecho_Plugin_Interface
             $cleanedContent = trim($cleanedContent);
             if ($cleanedContent === '' && !empty($media)) {
                 $options = Typecho_Widget::widget('Widget_Options');
-                $settings = $options->plugin('Enhancement');
+                $settings = self::pluginSettings($options);
                 $fallback = isset($settings->moments_image_text) ? trim((string)$settings->moments_image_text) : '';
                 if ($fallback === '') {
                     $fallback = '图片';
@@ -891,24 +1196,286 @@ class Enhancement_Plugin implements Typecho_Plugin_Interface
         }
     }
 
+    public static function turnstileEnabled(): bool
+    {
+        $settings = self::pluginSettings(Typecho_Widget::widget('Widget_Options'));
+        return isset($settings->enable_turnstile) && $settings->enable_turnstile == '1';
+    }
+
+    public static function turnstileSiteKey(): string
+    {
+        $settings = self::pluginSettings(Typecho_Widget::widget('Widget_Options'));
+        return isset($settings->turnstile_site_key) ? trim((string)$settings->turnstile_site_key) : '';
+    }
+
+    public static function turnstileSecretKey(): string
+    {
+        $settings = self::pluginSettings(Typecho_Widget::widget('Widget_Options'));
+        return isset($settings->turnstile_secret_key) ? trim((string)$settings->turnstile_secret_key) : '';
+    }
+
+    public static function turnstileReady(): bool
+    {
+        return self::turnstileEnabled() && self::turnstileSiteKey() !== '' && self::turnstileSecretKey() !== '';
+    }
+
+    public static function turnstileCommentGuestOnly(): bool
+    {
+        $settings = self::pluginSettings(Typecho_Widget::widget('Widget_Options'));
+        if (!isset($settings->turnstile_comment_guest_only)) {
+            return true;
+        }
+        return $settings->turnstile_comment_guest_only == '1';
+    }
+
+    public static function turnstileVerify($token, $remoteIp = ''): array
+    {
+        if (!self::turnstileEnabled()) {
+            return array('success' => true, 'message' => 'disabled');
+        }
+
+        $siteKey = self::turnstileSiteKey();
+        $secret = self::turnstileSecretKey();
+        if ($siteKey === '' || $secret === '') {
+            return array('success' => false, 'message' => _t('Turnstile 未配置完整（缺少 Site Key 或 Secret Key）'));
+        }
+
+        $token = trim((string)$token);
+        if ($token === '') {
+            return array('success' => false, 'message' => _t('请完成人机验证后再提交'));
+        }
+
+        $postFields = array(
+            'secret' => $secret,
+            'response' => $token
+        );
+        $remoteIp = trim((string)$remoteIp);
+        if ($remoteIp !== '') {
+            $postFields['remoteip'] = $remoteIp;
+        }
+
+        $ch = function_exists('curl_init') ? curl_init() : null;
+        if (!$ch) {
+            return array('success' => false, 'message' => _t('当前环境不支持 Turnstile 校验（缺少 cURL）'));
+        }
+
+        curl_setopt_array($ch, array(
+            CURLOPT_URL => 'https://challenges.cloudflare.com/turnstile/v0/siteverify',
+            CURLOPT_POST => true,
+            CURLOPT_POSTFIELDS => http_build_query($postFields),
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT => 10,
+            CURLOPT_HTTPHEADER => array(
+                'Content-Type: application/x-www-form-urlencoded'
+            )
+        ));
+
+        $response = curl_exec($ch);
+        if (curl_errno($ch)) {
+            $error = curl_error($ch);
+            curl_close($ch);
+            return array('success' => false, 'message' => _t('人机验证请求失败：%s', $error));
+        }
+        curl_close($ch);
+
+        $decoded = json_decode((string)$response, true);
+        if (!is_array($decoded)) {
+            return array('success' => false, 'message' => _t('人机验证返回数据异常'));
+        }
+
+        if (!empty($decoded['success'])) {
+            return array('success' => true, 'message' => 'ok');
+        }
+
+        $codes = array();
+        if (isset($decoded['error-codes']) && is_array($decoded['error-codes'])) {
+            $codes = $decoded['error-codes'];
+        }
+        $codeText = !empty($codes) ? implode(', ', $codes) : 'unknown_error';
+        return array('success' => false, 'message' => _t('人机验证失败：%s', $codeText));
+    }
+
+    public static function turnstileRenderBlock($formId = ''): string
+    {
+        if (!self::turnstileReady()) {
+            return '';
+        }
+
+        $formId = trim((string)$formId);
+        $formIdAttr = $formId !== '' ? ' data-form-id="' . htmlspecialchars($formId, ENT_QUOTES, 'UTF-8') . '"' : '';
+        $siteKey = htmlspecialchars(self::turnstileSiteKey(), ENT_QUOTES, 'UTF-8');
+
+        return '<div class="typecho-option enhancement-turnstile"' . $formIdAttr . '>'
+            . '<div class="cf-turnstile" data-sitekey="' . $siteKey . '"></div>'
+            . '</div>';
+    }
+
+    public static function turnstileFooter($archive = null)
+    {
+        if (!($archive instanceof Widget_Archive) || !$archive->is('single')) {
+            return;
+        }
+
+        self::renderCommentAuthorLinkEnhancer($archive);
+
+        if (!self::turnstileReady()) {
+            return;
+        }
+
+        $siteKey = htmlspecialchars(self::turnstileSiteKey(), ENT_QUOTES, 'UTF-8');
+        $commentNeedCaptcha = true;
+        if (self::turnstileCommentGuestOnly()) {
+            $user = Typecho_Widget::widget('Widget_User');
+            $commentNeedCaptcha = !$user->hasLogin();
+        }
+        $selectorParts = array('form.enhancement-public-form');
+        if ($commentNeedCaptcha) {
+            $selectorParts[] = 'form[action*="/comment"]';
+        }
+        $selector = implode(', ', $selectorParts);
+
+        echo '<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>';
+        echo '<script>(function(){'
+            . 'var siteKey=' . json_encode($siteKey) . ';'
+            . 'var selector=' . json_encode($selector) . ';'
+            . 'var forms=document.querySelectorAll(selector);'
+            . 'for(var i=0;i<forms.length;i++){' 
+            . 'var form=forms[i];'
+            . 'if(form.querySelector(".cf-turnstile")){continue;}'
+            . 'var holder=document.createElement("div");'
+            . 'holder.className="typecho-option enhancement-turnstile";'
+            . 'var widget=document.createElement("div");'
+            . 'widget.className="cf-turnstile";'
+            . 'widget.setAttribute("data-sitekey", siteKey);'
+            . 'holder.appendChild(widget);'
+            . 'var submit=form.querySelector("button[type=submit], input[type=submit]");'
+            . 'if(submit){'
+            . 'var wrap=submit.closest?submit.closest("p,div"):null;'
+            . 'if(wrap && wrap.parentNode===form){form.insertBefore(holder, wrap);}'
+            . 'else if(submit.parentNode){submit.parentNode.insertBefore(holder, submit);}'
+            . 'else{form.appendChild(holder);}'
+            . '}else{form.appendChild(holder);}'
+            . '}'
+            . 'if(window.turnstile && window.turnstile.render){'
+            . 'var els=document.querySelectorAll(".cf-turnstile");'
+            . 'for(var j=0;j<els.length;j++){' 
+            . 'if(!els[j].hasAttribute("data-widget-id")){' 
+            . 'var id=window.turnstile.render(els[j]);'
+            . 'if(id){els[j].setAttribute("data-widget-id", id);}'
+            . '}'
+            . '}'
+            . '}'
+            . '})();</script>';
+    }
+
+    private static function renderCommentAuthorLinkEnhancer($archive = null)
+    {
+        if (!($archive instanceof Widget_Archive) || !$archive->is('single')) {
+            return;
+        }
+
+        $enableBlankTarget = self::blankTargetEnabled();
+        $enableGoRedirect = self::goRedirectEnabled();
+        if (!$enableBlankTarget && !$enableGoRedirect) {
+            return;
+        }
+
+        $options = Typecho_Widget::widget('Widget_Options');
+        $siteHost = self::normalizeHost(parse_url((string)$options->siteUrl, PHP_URL_HOST));
+        $goBase = Typecho_Common::url('go/', $options->index);
+        $goPath = (string)parse_url($goBase, PHP_URL_PATH);
+        $goPath = '/' . ltrim($goPath, '/');
+        $whitelist = array_values(self::parseGoRedirectWhitelist());
+
+        echo '<script>(function(){'
+            . 'var enableBlank=' . json_encode($enableBlankTarget) . ';'
+            . 'var enableGo=' . json_encode($enableGoRedirect) . ';'
+            . 'var siteHost=' . json_encode($siteHost) . ';'
+            . 'var goBase=' . json_encode($goBase) . ';'
+            . 'var goPath=' . json_encode($goPath) . ';'
+            . 'var whitelist=' . json_encode($whitelist) . ';'
+            . 'var links=document.querySelectorAll("#comments .comment-author a[href], #comments .comment__author-name a[href], .comment-author a[href], .comment__author-name a[href], .comment-meta .comment-author a[href], .vcard a[href]");'
+            . 'if(!links||!links.length){return;}'
+            . 'function normalizeHost(host){host=(host||"").toLowerCase().trim();if(host.indexOf("www.")==0){host=host.slice(4);}return host;}'
+            . 'function isWhitelisted(host){if(!host){return false;}host=normalizeHost(host);for(var i=0;i<whitelist.length;i++){var domain=normalizeHost(whitelist[i]);if(!domain){continue;}if(host===domain){return true;}if(host.length>domain.length&&host.slice(-1*(domain.length+1))==="."+domain){return true;}}return false;}'
+            . 'function isGoHref(url){if(!url){return false;}if(goBase&&url.indexOf(goBase)===0){return true;}try{var parsed=new URL(url,window.location.href);if(!goPath||goPath==="/"){return false;}var path="/"+(parsed.pathname||"").replace(/^\/+/,"");var normalizedGoPath="/"+String(goPath).replace(/^\/+/,"");return path.indexOf(normalizedGoPath)===0;}catch(e){return false;}}'
+            . 'function toBase64Url(input){try{var utf8=unescape(encodeURIComponent(input));var b64=btoa(utf8);return b64.replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/g,"");}catch(e){return "";}}'
+            . 'for(var i=0;i<links.length;i++){' 
+            . 'var link=links[i];'
+            . 'var href=(link.getAttribute("href")||"").trim();'
+            . 'if(!href){continue;}'
+            . 'if(enableGo&&!isGoHref(href)){' 
+            . 'try{'
+            . 'var lower=href.toLowerCase();'
+            . 'if(lower.indexOf("mailto:")!==0&&lower.indexOf("tel:")!==0&&lower.indexOf("javascript:")!==0&&lower.indexOf("data:")!==0&&href.indexOf("#")!==0&&href.indexOf("/")!==0&&href.indexOf("?")!==0){'
+            . 'var parsed=new URL(href,window.location.href);'
+            . 'var protocol=(parsed.protocol||"").toLowerCase();'
+            . 'var host=normalizeHost(parsed.hostname||"");'
+            . 'if((protocol==="http:"||protocol==="https:")&&host&&host!==normalizeHost(siteHost)&&!isWhitelisted(host)){'
+            . 'var normalized=parsed.href;'
+            . 'var token=toBase64Url(normalized);'
+            . 'if(token){link.setAttribute("href", String(goBase||"")+token);href=link.getAttribute("href")||href;}'
+            . '}'
+            . '}'
+            . '}catch(e){}'
+            . '}'
+            . 'if(enableBlank){'
+            . 'link.setAttribute("target","_blank");'
+            . 'var rel=(link.getAttribute("rel")||"").toLowerCase().trim();'
+            . 'var rels=rel?rel.split(/\s+/):[];'
+            . 'if(rels.indexOf("noopener")<0){rels.push("noopener");}'
+            . 'if(rels.indexOf("noreferrer")<0){rels.push("noreferrer");}'
+            . 'link.setAttribute("rel",rels.join(" ").trim());'
+            . '}'
+            . '}'
+            . '})();</script>';
+    }
+
+    public static function turnstileFilterComment($comment, $post, $last)
+    {
+        $current = empty($last) ? $comment : $last;
+        if (!self::turnstileEnabled()) {
+            return $current;
+        }
+
+        if (self::turnstileCommentGuestOnly()) {
+            $user = Typecho_Widget::widget('Widget_User');
+            if ($user->hasLogin()) {
+                return $current;
+            }
+        }
+
+        $token = Typecho_Request::getInstance()->get('cf-turnstile-response');
+        $verify = self::turnstileVerify($token, Typecho_Request::getInstance()->getIp());
+        if (empty($verify['success'])) {
+            Typecho_Cookie::set('__typecho_remember_text', isset($current['text']) ? (string)$current['text'] : '');
+            throw new Typecho_Widget_Exception(isset($verify['message']) ? $verify['message'] : _t('人机验证失败'));
+        }
+
+        return $current;
+    }
+
     public static function finishComment($comment)
     {
         $options = Typecho_Widget::widget('Widget_Options');
-        $settings = $options->plugin('Enhancement');
+        $settings = self::pluginSettings($options);
+        $user = Typecho_Widget::widget('Widget_User');
+        $commentUrl = isset($comment->url) ? trim((string)$comment->url) : '';
+
         if (!isset($settings->enable_comment_sync) || $settings->enable_comment_sync == '1') {
-            $user = Typecho_Widget::widget('Widget_User');
             $db = Typecho_Db::get();
 
             if (!$user->hasLogin()) {
-                if (!empty($comment->url)) {
+                if (!empty($commentUrl)) {
                     $update = $db->update('table.comments')
-                        ->rows(array('url' => $comment->url))
+                        ->rows(array('url' => $commentUrl))
                         ->where('ip =? and mail =? and authorId =?', $comment->ip, $comment->mail, '0');
                     $db->query($update);
                 }
             } else {
+                $userUrl = isset($user->url) ? trim((string)$user->url) : '';
                 $update = $db->update('table.comments')
-                    ->rows(array('url' => $user->url, 'mail' => $user->mail, 'author' => $user->screenName))
+                    ->rows(array('url' => $userUrl, 'mail' => $user->mail, 'author' => $user->screenName))
                     ->where('authorId =?', $user->uid);
                 $db->query($update);
             }
@@ -925,12 +1492,31 @@ class Enhancement_Plugin implements Typecho_Plugin_Interface
         return $comment;
     }
 
-    public static function commentByQQ($comment)
+    public static function commentByQQMark($comment, $edit, $status)
+    {
+        $status = trim((string)$status);
+        if ($status !== 'approved') {
+            return;
+        }
+
+        $options = Typecho_Widget::widget('Widget_Options');
+        $settings = self::pluginSettings($options);
+        if (!isset($settings->enable_comment_by_qq) || $settings->enable_comment_by_qq != '1') {
+            return;
+        }
+
+        self::commentByQQ($edit, 'approved');
+    }
+
+    public static function commentByQQ($comment, $statusOverride = null)
     {
         $options = Typecho_Widget::widget('Widget_Options');
-        $settings = $options->plugin('Enhancement');
+        $settings = self::pluginSettings($options);
 
-        if ($comment->status != 'approved') {
+        $status = $statusOverride !== null
+            ? trim((string)$statusOverride)
+            : (isset($comment->status) ? trim((string)$comment->status) : '');
+        if ($status !== 'approved') {
             return;
         }
 
@@ -1021,7 +1607,7 @@ class Enhancement_Plugin implements Typecho_Plugin_Interface
     public static function commentNotifierGetAuthor($comment): array
     {
         $options = Typecho_Widget::widget('Widget_Options');
-        $plugin = $options->plugin('Enhancement');
+        $plugin = self::pluginSettings($options);
         $db = Typecho_Db::get();
         $ae = $db->fetchRow($db->select()->from('table.users')->where('table.users.uid=?', $comment->ownerId));
         $mail = isset($ae['mail']) ? $ae['mail'] : '';
@@ -1037,7 +1623,7 @@ class Enhancement_Plugin implements Typecho_Plugin_Interface
     public static function commentNotifierMark($comment, $edit, $status)
     {
         $options = Typecho_Widget::widget('Widget_Options');
-        $plugin = $options->plugin('Enhancement');
+        $plugin = self::pluginSettings($options);
         if (isset($plugin->enable_comment_notifier) && $plugin->enable_comment_notifier != '1') {
             return;
         }
@@ -1071,7 +1657,7 @@ class Enhancement_Plugin implements Typecho_Plugin_Interface
     public static function commentNotifierRefinishComment($comment)
     {
         $options = Typecho_Widget::widget('Widget_Options');
-        $plugin = $options->plugin('Enhancement');
+        $plugin = self::pluginSettings($options);
         if (isset($plugin->enable_comment_notifier) && $plugin->enable_comment_notifier != '1') {
             return;
         }
@@ -1109,7 +1695,7 @@ class Enhancement_Plugin implements Typecho_Plugin_Interface
             return;
         }
         $options = Typecho_Widget::widget('Widget_Options');
-        $plugin = $options->plugin('Enhancement');
+        $plugin = self::pluginSettings($options);
         if (isset($plugin->enable_comment_notifier) && $plugin->enable_comment_notifier != '1') {
             return;
         }
@@ -1139,7 +1725,7 @@ class Enhancement_Plugin implements Typecho_Plugin_Interface
     public static function commentNotifierResendMail($param)
     {
         $options = Typecho_Widget::widget('Widget_Options');
-        $plugin = $options->plugin('Enhancement');
+        $plugin = self::pluginSettings($options);
         if (isset($plugin->enable_comment_notifier) && $plugin->enable_comment_notifier != '1') {
             return;
         }
@@ -1158,7 +1744,7 @@ class Enhancement_Plugin implements Typecho_Plugin_Interface
     public static function commentNotifierSend($param)
     {
         $options = Typecho_Widget::widget('Widget_Options');
-        $plugin = $options->plugin('Enhancement');
+        $plugin = self::pluginSettings($options);
         if (isset($plugin->enable_comment_notifier) && $plugin->enable_comment_notifier != '1') {
             return;
         }
@@ -1168,7 +1754,7 @@ class Enhancement_Plugin implements Typecho_Plugin_Interface
     public static function commentNotifierZemail($param)
     {
         $options = Typecho_Widget::widget('Widget_Options');
-        $plugin = $options->plugin('Enhancement');
+        $plugin = self::pluginSettings($options);
 
         $flag = true;
         try {
@@ -1232,7 +1818,7 @@ class Enhancement_Plugin implements Typecho_Plugin_Interface
 
     private static function commentNotifierMailBody($comment, $options, $type): string
     {
-        $plugin = $options->plugin('Enhancement');
+        $plugin = self::pluginSettings($options);
         $commentAt = new Typecho_Date($comment->created);
         $commentAt = $commentAt->format('Y-m-d H:i:s');
         $commentText = isset($comment->content) ? $comment->content : (isset($comment->text) ? $comment->text : '');
@@ -1353,7 +1939,8 @@ class Enhancement_Plugin implements Typecho_Plugin_Interface
 
     public static function commentNotifierConfigStr(string $key, $default = '', string $method = 'empty'): string
     {
-        $value = Typecho_Widget::widget('Widget_Options')->plugin('Enhancement')->$key ?? null;
+        $settings = self::pluginSettings(Typecho_Widget::widget('Widget_Options'));
+        $value = isset($settings->$key) ? $settings->$key : null;
         if ($method === 'empty') {
             return empty($value) ? $default : $value;
         } else {
@@ -1363,7 +1950,7 @@ class Enhancement_Plugin implements Typecho_Plugin_Interface
 
     public static function avatarMirrorEnabled(): bool
     {
-        $settings = Typecho_Widget::widget('Widget_Options')->plugin('Enhancement');
+        $settings = self::pluginSettings(Typecho_Widget::widget('Widget_Options'));
         if (!isset($settings->enable_avatar_mirror)) {
             return true;
         }
@@ -1372,7 +1959,7 @@ class Enhancement_Plugin implements Typecho_Plugin_Interface
 
     public static function avatarBaseUrl(): string
     {
-        $settings = Typecho_Widget::widget('Widget_Options')->plugin('Enhancement');
+        $settings = self::pluginSettings(Typecho_Widget::widget('Widget_Options'));
         $defaultMirror = 'https://cn.cravatar.com/avatar/';
         $defaultGravatar = 'https://secure.gravatar.com/avatar/';
         $enabled = !isset($settings->enable_avatar_mirror) || $settings->enable_avatar_mirror == '1';
@@ -1393,12 +1980,41 @@ class Enhancement_Plugin implements Typecho_Plugin_Interface
 
     public static function applyAvatarPrefix($archive = null, $select = null)
     {
+        self::registerRuntimeCommentFilter();
+        self::upgradeLegacyCommentUrls();
+
         if (!self::avatarMirrorEnabled()) {
             return;
         }
         if (!defined('__TYPECHO_GRAVATAR_PREFIX__')) {
             define('__TYPECHO_GRAVATAR_PREFIX__', self::avatarBaseUrl());
         }
+    }
+
+    private static function registerRuntimeCommentFilter()
+    {
+        static $registered = false;
+        if ($registered) {
+            return;
+        }
+
+        $registered = true;
+        Typecho_Plugin::factory('Widget_Abstract_Comments')->filter = array(__CLASS__, 'filterCommentRowUrl');
+    }
+
+    public static function filterCommentRowUrl($row, $widget = null, $lastRow = null)
+    {
+        if (!is_array($row)) {
+            return $row;
+        }
+
+        $currentUrl = isset($row['url']) ? trim((string)$row['url']) : '';
+        if ($currentUrl === '') {
+            return $row;
+        }
+
+        $row['url'] = self::convertExternalUrlToGo($currentUrl);
+        return $row;
     }
 
     public static function buildAvatarUrl($email, $size = null, $default = null, array $extra = array()): string
@@ -1448,7 +2064,7 @@ class Enhancement_Plugin implements Typecho_Plugin_Interface
     public static function tagsList()
     {
         $options = Typecho_Widget::widget('Widget_Options');
-        $settings = $options->plugin('Enhancement');
+        $settings = self::pluginSettings($options);
         if (isset($settings->enable_tags_helper) && $settings->enable_tags_helper != '1') {
             return;
         }
@@ -1479,7 +2095,7 @@ while ($tags->next()) {
     public static function output_str($widget, array $params)
     {
         $options = Typecho_Widget::widget('Widget_Options');
-        $settings = $options->plugin('Enhancement');
+        $settings = self::pluginSettings($options);
         if (!isset($options->plugins['activated']['Enhancement'])) {
             return _t('Enhancement 插件未激活');
         }
@@ -1518,9 +2134,15 @@ while ($tags->next()) {
                 }
             }
             if ($item['state'] == 1) {
+                $safeName = htmlspecialchars((string)$item['name'], ENT_QUOTES, 'UTF-8');
+                $safeUrl = htmlspecialchars((string)$item['url'], ENT_QUOTES, 'UTF-8');
+                $safeSort = htmlspecialchars((string)$item['sort'], ENT_QUOTES, 'UTF-8');
+                $safeDescription = htmlspecialchars((string)$item['description'], ENT_QUOTES, 'UTF-8');
+                $safeImage = htmlspecialchars((string)$item['image'], ENT_QUOTES, 'UTF-8');
+                $safeUser = htmlspecialchars((string)$item['user'], ENT_QUOTES, 'UTF-8');
                 $str .= str_replace(
                     array('{lid}', '{name}', '{url}', '{sort}', '{title}', '{description}', '{image}', '{user}', '{size}'),
-                    array($item['lid'], $item['name'], $item['url'], $item['sort'], $item['description'], $item['description'], $item['image'], $item['user'], $size),
+                    array((int)$item['lid'], $safeName, $safeUrl, $safeSort, $safeDescription, $safeDescription, $safeImage, $safeUser, (int)$size),
                     $pattern
                 );
             }
@@ -1551,12 +2173,826 @@ while ($tags->next()) {
         return Enhancement_Plugin::output_str('', array($matches[4], $matches[1], $matches[2], $matches[3], 'HTML'));
     }
 
+    public static function videoParserEnabled(): bool
+    {
+        $settings = self::pluginSettings(Typecho_Widget::widget('Widget_Options'));
+        if (!isset($settings->enable_video_parser)) {
+            return false;
+        }
+        return $settings->enable_video_parser == '1';
+    }
+
+    public static function blankTargetEnabled(): bool
+    {
+        $settings = self::pluginSettings(Typecho_Widget::widget('Widget_Options'));
+        if (!isset($settings->enable_blank_target)) {
+            return false;
+        }
+        return $settings->enable_blank_target == '1';
+    }
+
+    public static function goRedirectEnabled(): bool
+    {
+        $settings = self::pluginSettings(Typecho_Widget::widget('Widget_Options'));
+        if (!isset($settings->enable_go_redirect)) {
+            return true;
+        }
+        return $settings->enable_go_redirect == '1';
+    }
+
+    private static function parseGoRedirectWhitelist(): array
+    {
+        $settings = self::pluginSettings(Typecho_Widget::widget('Widget_Options'));
+        $raw = isset($settings->go_redirect_whitelist) ? (string)$settings->go_redirect_whitelist : '';
+        if ($raw === '') {
+            return array();
+        }
+
+        $parts = preg_split('/[\r\n,，;；\s]+/u', $raw, -1, PREG_SPLIT_NO_EMPTY);
+        if (!is_array($parts) || empty($parts)) {
+            return array();
+        }
+
+        $domains = array();
+        foreach ($parts as $part) {
+            $domain = strtolower(trim((string)$part));
+            if ($domain === '') {
+                continue;
+            }
+
+            if (strpos($domain, '://') !== false) {
+                $parsedHost = parse_url($domain, PHP_URL_HOST);
+                if (is_string($parsedHost) && $parsedHost !== '') {
+                    $domain = strtolower(trim($parsedHost));
+                }
+            }
+
+            if (strpos($domain, 'www.') === 0) {
+                $domain = substr($domain, 4);
+            }
+            $domain = trim($domain, '.');
+            if ($domain === '') {
+                continue;
+            }
+
+            $domains[$domain] = true;
+        }
+
+        return array_keys($domains);
+    }
+
+    private static function isWhitelistedHost($host): bool
+    {
+        $host = self::normalizeHost($host);
+        if ($host === '') {
+            return false;
+        }
+
+        $whitelist = self::parseGoRedirectWhitelist();
+        if (empty($whitelist)) {
+            return false;
+        }
+
+        foreach ($whitelist as $domain) {
+            $domain = self::normalizeHost($domain);
+            if ($domain === '') {
+                continue;
+            }
+
+            if ($host === $domain) {
+                return true;
+            }
+
+            if (strlen($host) > strlen($domain) && substr($host, -strlen('.' . $domain)) === '.' . $domain) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static function normalizeHost($host)
+    {
+        $host = strtolower(trim((string)$host));
+        if ($host === '') {
+            return '';
+        }
+        if (substr($host, 0, 4) === 'www.') {
+            $host = substr($host, 4);
+        }
+        return $host;
+    }
+
+    private static function normalizeExternalUrl($url)
+    {
+        $url = trim(html_entity_decode((string)$url, ENT_QUOTES, 'UTF-8'));
+        if ($url === '') {
+            return '';
+        }
+
+        if (strpos($url, '//') === 0) {
+            $options = Typecho_Widget::widget('Widget_Options');
+            $siteUrl = isset($options->siteUrl) ? (string)$options->siteUrl : '';
+            $siteScheme = (string)parse_url($siteUrl, PHP_URL_SCHEME);
+            if ($siteScheme === '') {
+                $siteScheme = 'https';
+            }
+            $url = $siteScheme . ':' . $url;
+        } elseif (!preg_match('/^[a-z][a-z0-9+\-.]*:\/\//i', $url)) {
+            $lower = strtolower($url);
+            if (
+                strpos($lower, 'mailto:') !== 0 &&
+                strpos($lower, 'tel:') !== 0 &&
+                strpos($lower, 'javascript:') !== 0 &&
+                strpos($lower, 'data:') !== 0 &&
+                strpos($url, '#') !== 0 &&
+                strpos($url, '/') !== 0 &&
+                strpos($url, '?') !== 0 &&
+                preg_match('/^[^\s\/\?#]+\.[^\s\/\?#]+(?:[\/\?#].*)?$/', $url)
+            ) {
+                $url = 'http://' . $url;
+            }
+        }
+
+        return $url;
+    }
+
+    private static function shouldUseGoRedirect($url)
+    {
+        if (!self::goRedirectEnabled()) {
+            return false;
+        }
+
+        $decoded = self::normalizeExternalUrl($url);
+        if ($decoded === '') {
+            return false;
+        }
+
+        $lower = strtolower($decoded);
+        if (strpos($lower, '#') === 0 || strpos($lower, '/') === 0 || strpos($lower, '?') === 0) {
+            return false;
+        }
+        if (
+            strpos($lower, 'mailto:') === 0 ||
+            strpos($lower, 'tel:') === 0 ||
+            strpos($lower, 'javascript:') === 0 ||
+            strpos($lower, 'data:') === 0
+        ) {
+            return false;
+        }
+
+        $options = Typecho_Widget::widget('Widget_Options');
+        $siteUrl = isset($options->siteUrl) ? (string)$options->siteUrl : '';
+
+        $goPrefix = Typecho_Common::url('go/', $options->index);
+        if (strpos($decoded, $goPrefix) === 0) {
+            return false;
+        }
+
+        $parsed = @parse_url($decoded);
+        if (!is_array($parsed)) {
+            return false;
+        }
+
+        $scheme = isset($parsed['scheme']) ? strtolower((string)$parsed['scheme']) : '';
+        $host = isset($parsed['host']) ? self::normalizeHost($parsed['host']) : '';
+        if (!in_array($scheme, array('http', 'https'), true) || $host === '') {
+            return false;
+        }
+
+        if (self::isWhitelistedHost($host)) {
+            return false;
+        }
+
+        $siteHost = self::normalizeHost(parse_url($siteUrl, PHP_URL_HOST));
+        if ($siteHost !== '' && $host === $siteHost) {
+            return false;
+        }
+
+        return true;
+    }
+
+    private static function isGoRedirectHref($href): bool
+    {
+        return self::decodeGoRedirectUrl($href) !== '';
+    }
+
+    private static function decodeGoRedirectUrl($href): string
+    {
+        $href = trim(html_entity_decode((string)$href, ENT_QUOTES, 'UTF-8'));
+        if ($href === '') {
+            return '';
+        }
+
+        $options = Typecho_Widget::widget('Widget_Options');
+        $goBase = Typecho_Common::url('go/', $options->index);
+        $token = '';
+
+        if (strpos($href, $goBase) === 0) {
+            $token = (string)substr($href, strlen($goBase));
+        } else {
+            $goPath = (string)parse_url($goBase, PHP_URL_PATH);
+            $hrefPath = parse_url($href, PHP_URL_PATH);
+            if (!is_string($hrefPath) || $hrefPath === '') {
+                return '';
+            }
+
+            $normalizedGoPath = '/' . ltrim($goPath, '/');
+            $normalizedHrefPath = '/' . ltrim($hrefPath, '/');
+            if ($normalizedGoPath === '/' || $normalizedGoPath === '') {
+                return '';
+            }
+            if (strpos($normalizedHrefPath, $normalizedGoPath) !== 0) {
+                return '';
+            }
+
+            $token = (string)substr($normalizedHrefPath, strlen($normalizedGoPath));
+        }
+
+        $token = ltrim($token, '/');
+        if ($token === '') {
+            return '';
+        }
+
+        $token = preg_replace('/[#\?].*$/', '', $token);
+        if (!is_string($token) || $token === '') {
+            return '';
+        }
+
+        $decoded = self::decodeGoTarget($token);
+        if ($decoded !== '') {
+            return $decoded;
+        }
+
+        if (preg_match('/^(.*?)(?:-?target=_blank.*)$/i', $token, $matches) && isset($matches[1])) {
+            $fallbackToken = rtrim((string)$matches[1], '-_');
+            if ($fallbackToken !== '') {
+                return self::decodeGoTarget($fallbackToken);
+            }
+        }
+
+        return '';
+    }
+
+    private static function normalizeAnchorTagSpacing($tag)
+    {
+        if (!is_string($tag) || $tag === '') {
+            return $tag;
+        }
+
+        $tag = preg_replace('/"(?=[A-Za-z_:][A-Za-z0-9:_.-]*\s*=)/', '" ', $tag);
+        $tag = preg_replace('/\'(?=[A-Za-z_:][A-Za-z0-9:_.-]*\s*=)/', '\' ', $tag);
+
+        return is_string($tag) ? $tag : '';
+    }
+
+    private static function convertExternalUrlToGo($url)
+    {
+        $url = trim((string)$url);
+        if ($url === '') {
+            return $url;
+        }
+
+        $decodedGoUrl = self::decodeGoRedirectUrl($url);
+
+        if (!self::goRedirectEnabled()) {
+            return $decodedGoUrl !== '' ? $decodedGoUrl : $url;
+        }
+
+        if ($decodedGoUrl !== '') {
+            if (!self::shouldUseGoRedirect($decodedGoUrl)) {
+                return $decodedGoUrl;
+            }
+
+            $rebuildGoUrl = self::buildGoRedirectUrl($decodedGoUrl);
+            return $rebuildGoUrl !== '' ? $rebuildGoUrl : $url;
+        }
+
+        if (!self::shouldUseGoRedirect($url)) {
+            return $url;
+        }
+
+        $goUrl = self::buildGoRedirectUrl($url);
+        return $goUrl !== '' ? $goUrl : $url;
+    }
+
+    private static function upgradeCommentUrlByCoid($coid, $url)
+    {
+        $coid = intval($coid);
+        $url = trim((string)$url);
+        if ($coid <= 0 || $url === '') {
+            return;
+        }
+
+        try {
+            $db = Typecho_Db::get();
+            $db->query(
+                $db->update('table.comments')
+                    ->rows(array('url' => $url))
+                    ->where('coid = ?', $coid)
+            );
+        } catch (Exception $e) {
+            // ignore url upgrade errors
+        }
+    }
+
+    private static function upgradeCommentWidgetUrl($widget)
+    {
+        if (!($widget instanceof Widget_Abstract_Comments)) {
+            return;
+        }
+
+        $currentUrl = isset($widget->url) ? trim((string)$widget->url) : '';
+        if ($currentUrl === '') {
+            return;
+        }
+
+        $goUrl = self::convertExternalUrlToGo($currentUrl);
+        if ($goUrl === $currentUrl) {
+            return;
+        }
+
+        try {
+            $widget->url = $goUrl;
+        } catch (Exception $e) {
+            // ignore runtime property assignment errors
+        }
+    }
+
+    private static function upgradeLegacyCommentUrls($limit = 120)
+    {
+        static $executed = false;
+        if ($executed) {
+            return;
+        }
+        $executed = true;
+
+        $limit = intval($limit);
+        if ($limit <= 0) {
+            $limit = 120;
+        }
+        if ($limit > 500) {
+            $limit = 500;
+        }
+
+        try {
+            $db = Typecho_Db::get();
+            $rows = $db->fetchAll(
+                $db->select('coid', 'url')
+                    ->from('table.comments')
+                    ->where('url <> ?', '')
+                    ->order('coid', Typecho_Db::SORT_DESC)
+                    ->limit($limit)
+            );
+
+            if (!is_array($rows) || empty($rows)) {
+                return;
+            }
+
+            foreach ($rows as $row) {
+                $currentUrl = isset($row['url']) ? trim((string)$row['url']) : '';
+                if ($currentUrl === '') {
+                    continue;
+                }
+
+                $originUrl = self::decodeGoRedirectUrl($currentUrl);
+                if ($originUrl === '' || $originUrl === $currentUrl) {
+                    continue;
+                }
+
+                $coid = isset($row['coid']) ? intval($row['coid']) : 0;
+                if ($coid <= 0) {
+                    continue;
+                }
+
+                $db->query(
+                    $db->update('table.comments')
+                        ->rows(array('url' => $originUrl))
+                        ->where('coid = ?', $coid)
+                );
+            }
+        } catch (Exception $e) {
+            // ignore batch repair errors
+        }
+    }
+
+    public static function encodeGoTarget($url)
+    {
+        $encoded = base64_encode((string)$url);
+        return rtrim(strtr($encoded, '+/', '-_'), '=');
+    }
+
+    public static function decodeGoTarget($token)
+    {
+        $token = trim((string)$token);
+        if ($token === '') {
+            return '';
+        }
+
+        $token = rawurldecode($token);
+        $normalized = strtr($token, '-_', '+/');
+        $padding = strlen($normalized) % 4;
+        if ($padding > 0) {
+            $normalized .= str_repeat('=', 4 - $padding);
+        }
+
+        $decoded = base64_decode($normalized, true);
+        if ($decoded === false) {
+            return '';
+        }
+
+        $decoded = trim((string)$decoded);
+        if (!self::validateHttpUrl($decoded)) {
+            return '';
+        }
+
+        return $decoded;
+    }
+
+    public static function buildGoRedirectUrl($url)
+    {
+        $normalized = self::normalizeExternalUrl($url);
+        if (!self::validateHttpUrl($normalized)) {
+            return '';
+        }
+
+        $options = Typecho_Widget::widget('Widget_Options');
+        return Typecho_Common::url('go/' . self::encodeGoTarget($normalized), $options->index);
+    }
+
+    private static function rewriteExternalLinksByRegex($content)
+    {
+        if (!is_string($content) || $content === '') {
+            return $content;
+        }
+
+        return preg_replace_callback(
+            '/<a\s+[^>]*>/i',
+            function ($matches) {
+                $tag = self::normalizeAnchorTagSpacing($matches[0]);
+                if (!preg_match('/\bhref\s*=\s*(?:"([^"]*)"|\'([^\']*)\'|([^\s>"\']+))/i', $tag, $hrefMatch)) {
+                    return $tag;
+                }
+
+                $href = '';
+                for ($index = 1; $index <= 3; $index++) {
+                    if (isset($hrefMatch[$index]) && $hrefMatch[$index] !== '') {
+                        $href = $hrefMatch[$index];
+                        break;
+                    }
+                }
+
+                $targetUrl = self::convertExternalUrlToGo($href);
+                if ($targetUrl === '' || $targetUrl === $href) {
+                    return $tag;
+                }
+
+                $target = htmlspecialchars($targetUrl, ENT_QUOTES, 'UTF-8');
+                $tag = preg_replace('/\bhref\s*=\s*(?:"[^"]*"|\'[^\']*\'|[^\s>"\']+)/i', 'href="' . $target . '"', $tag, 1);
+                return self::normalizeAnchorTagSpacing($tag);
+            },
+            $content
+        );
+    }
+
+    private static function rewriteExternalLinks($content)
+    {
+        if (!is_string($content) || $content === '' || stripos($content, '<a') === false) {
+            return $content;
+        }
+
+        if (!class_exists('DOMDocument')) {
+            return self::rewriteExternalLinksByRegex($content);
+        }
+
+        $libxmlState = libxml_use_internal_errors(true);
+        $dom = new DOMDocument();
+        $loadFlags = 0;
+        if (defined('LIBXML_HTML_NOIMPLIED')) {
+            $loadFlags |= LIBXML_HTML_NOIMPLIED;
+        }
+        if (defined('LIBXML_HTML_NODEFDTD')) {
+            $loadFlags |= LIBXML_HTML_NODEFDTD;
+        }
+
+        $loaded = $dom->loadHTML('<?xml encoding="UTF-8">' . $content, $loadFlags);
+        libxml_clear_errors();
+        libxml_use_internal_errors($libxmlState);
+
+        if (!$loaded) {
+            return self::rewriteExternalLinksByRegex($content);
+        }
+
+        $links = $dom->getElementsByTagName('a');
+        foreach ($links as $link) {
+            $href = trim((string)$link->getAttribute('href'));
+            $targetUrl = self::convertExternalUrlToGo($href);
+            if ($targetUrl === '' || $targetUrl === $href) {
+                continue;
+            }
+            $link->setAttribute('href', $targetUrl);
+        }
+
+        $result = $dom->saveHTML();
+        if ($result === false) {
+            return self::rewriteExternalLinksByRegex($content);
+        }
+
+        return str_replace('<?xml encoding="UTF-8">', '', $result);
+    }
+
+    private static function appendBlankTargetByRegex($content)
+    {
+        return preg_replace_callback(
+            '/<a\s+[^>]*>/i',
+            function ($matches) {
+                $tag = self::normalizeAnchorTagSpacing($matches[0]);
+                $href = '';
+                if (preg_match('/\bhref\s*=\s*(?:"([^"]*)"|\'([^\']*)\'|([^\s>"\']+))/i', $tag, $hrefMatch)) {
+                    for ($index = 1; $index <= 3; $index++) {
+                        if (isset($hrefMatch[$index]) && $hrefMatch[$index] !== '') {
+                            $href = $hrefMatch[$index];
+                            break;
+                        }
+                    }
+                }
+
+                if (preg_match('/\btarget\s*=\s*["\"][^"\"]*["\"]/i', $tag)) {
+                    $tag = preg_replace('/\btarget\s*=\s*["\"][^"\"]*["\"]/i', 'target="_blank"', $tag, 1);
+                } elseif (preg_match('/\btarget\s*=\s*\'[^\']*\'/i', $tag)) {
+                    $tag = preg_replace('/\btarget\s*=\s*\'[^\']*\'/i', 'target="_blank"', $tag, 1);
+                } else {
+                    $tag = preg_replace('/>$/', ' target="_blank">', $tag, 1);
+                }
+
+                if (preg_match('/\brel\s*=\s*["\"]([^"\"]*)["\"]/i', $tag, $relMatch) || preg_match('/\brel\s*=\s*\'([^\']*)\'/i', $tag, $relMatch)) {
+                    $rels = preg_split('/\s+/', strtolower(trim(isset($relMatch[1]) ? $relMatch[1] : '')), -1, PREG_SPLIT_NO_EMPTY);
+                    $rels = is_array($rels) ? $rels : array();
+                    if (!in_array('noopener', $rels, true)) {
+                        $rels[] = 'noopener';
+                    }
+                    if (!in_array('noreferrer', $rels, true)) {
+                        $rels[] = 'noreferrer';
+                    }
+                    $relValue = 'rel="' . implode(' ', $rels) . '"';
+                    $tagBeforeRelReplace = $tag;
+                    $tag = preg_replace('/\brel\s*=\s*["\"]([^"\"]*)["\"]/i', $relValue, $tag, 1);
+                    if ($tag === $tagBeforeRelReplace) {
+                        $tag = preg_replace('/\brel\s*=\s*\'([^\']*)\'/i', 'rel="' . implode(' ', $rels) . '"', $tag, 1);
+                    }
+                } else {
+                    $tag = preg_replace('/>$/', ' rel="noopener noreferrer">', $tag, 1);
+                }
+
+                return self::normalizeAnchorTagSpacing($tag);
+            },
+            $content
+        );
+    }
+
+    private static function addBlankTarget($content)
+    {
+        if (!is_string($content) || $content === '') {
+            return $content;
+        }
+
+        if (stripos($content, '<a') === false) {
+            return $content;
+        }
+
+        if (!class_exists('DOMDocument')) {
+            return self::appendBlankTargetByRegex($content);
+        }
+
+        $libxmlState = libxml_use_internal_errors(true);
+        $dom = new DOMDocument();
+        $loadFlags = 0;
+        if (defined('LIBXML_HTML_NOIMPLIED')) {
+            $loadFlags |= LIBXML_HTML_NOIMPLIED;
+        }
+        if (defined('LIBXML_HTML_NODEFDTD')) {
+            $loadFlags |= LIBXML_HTML_NODEFDTD;
+        }
+
+        $loaded = $dom->loadHTML('<?xml encoding="UTF-8">' . $content, $loadFlags);
+        libxml_clear_errors();
+        libxml_use_internal_errors($libxmlState);
+
+        if (!$loaded) {
+            return self::appendBlankTargetByRegex($content);
+        }
+
+        $links = $dom->getElementsByTagName('a');
+        foreach ($links as $link) {
+            $link->setAttribute('target', '_blank');
+            $existingRel = trim((string)$link->getAttribute('rel'));
+            $rels = preg_split('/\s+/', strtolower($existingRel), -1, PREG_SPLIT_NO_EMPTY);
+            $rels = is_array($rels) ? $rels : array();
+            if (!in_array('noopener', $rels, true)) {
+                $rels[] = 'noopener';
+            }
+            if (!in_array('noreferrer', $rels, true)) {
+                $rels[] = 'noreferrer';
+            }
+            $link->setAttribute('rel', implode(' ', $rels));
+        }
+
+        $result = $dom->saveHTML();
+        if ($result === false) {
+            return self::appendBlankTargetByRegex($content);
+        }
+
+        return str_replace('<?xml encoding="UTF-8">', '', $result);
+    }
+
+    private static function replaceVideoLinks($content)
+    {
+        if (empty($content)) {
+            return $content;
+        }
+
+        $content = preg_replace_callback(
+            '/<a\s+[^>]*href=["\']([^"\']*)["\'][^>]*>.*?<\/a>/is',
+            function ($matches) {
+                $url = html_entity_decode($matches[1], ENT_QUOTES, 'UTF-8');
+                $videoInfo = self::extractVideoInfo($url);
+
+                if ($videoInfo) {
+                    return self::generateVideoPlayer($videoInfo);
+                }
+
+                return $matches[0];
+            },
+            $content
+        );
+
+        $content = preg_replace_callback(
+            '/https?:\/\/(?:www\.)?(?:youtube\.com\/watch\?v=|youtu\.be\/|bilibili\.com\/video\/|v\.youku\.com\/v_show\/id_)[^\s<]+/i',
+            function ($matches) {
+                $url = html_entity_decode($matches[0], ENT_QUOTES, 'UTF-8');
+                $videoInfo = self::extractVideoInfo($url);
+
+                if ($videoInfo) {
+                    return self::generateVideoPlayer($videoInfo);
+                }
+
+                return $matches[0];
+            },
+            $content
+        );
+
+        return $content;
+    }
+
+    private static function extractVideoInfo($url)
+    {
+        $url = trim(html_entity_decode((string)$url, ENT_QUOTES, 'UTF-8'));
+        if ($url === '') {
+            return null;
+        }
+
+        $decodedGoUrl = self::decodeGoRedirectUrl($url);
+        if ($decodedGoUrl !== '') {
+            $url = $decodedGoUrl;
+        }
+
+        if (preg_match('/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([^&\n?#\/]+)/i', $url, $matches)) {
+            return array(
+                'platform' => 'youtube',
+                'videoId' => $matches[1]
+            );
+        }
+
+        if (preg_match('/bilibili\.com\/video\/(BV[0-9A-Za-z]+)/i', $url, $matches)) {
+            return array(
+                'platform' => 'bilibili',
+                'videoId' => $matches[1],
+                'idType' => 'bvid'
+            );
+        }
+
+        if (preg_match('/bilibili\.com\/video\/av(\d+)/i', $url, $matches)) {
+            return array(
+                'platform' => 'bilibili',
+                'videoId' => $matches[1],
+                'idType' => 'aid'
+            );
+        }
+
+        if (preg_match('/v\.youku\.com\/v_show\/id_([A-Za-z0-9=]+)\.html/i', $url, $matches)) {
+            return array(
+                'platform' => 'youku',
+                'videoId' => $matches[1]
+            );
+        }
+
+        return null;
+    }
+
+    private static function generateVideoPlayer($videoInfo)
+    {
+        $embedUrl = self::getVideoEmbedUrl($videoInfo);
+        if ($embedUrl === '') {
+            return '';
+        }
+
+        $platform = isset($videoInfo['platform']) ? strtolower((string)$videoInfo['platform']) : '';
+        $platformLabelHtml = self::buildVideoPlatformLabelHtml($platform);
+        $html = '<div class="enhancement-video-player-wrapper">';
+        $html .= '<div class="enhancement-platform-label enhancement-label-' . $platform . '">' . $platformLabelHtml . '</div>';
+        $html .= '<div class="enhancement-player-container enhancement-' . $platform . '">';
+        $html .= '<iframe src="' . htmlspecialchars($embedUrl, ENT_QUOTES, 'UTF-8') . '" ';
+        $html .= 'allowfullscreen ';
+        $html .= 'allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" ';
+        $html .= 'style="width: 100%; height: 500px; border: none;">';
+        $html .= '</iframe>';
+        $html .= '</div>';
+        $html .= '</div>';
+
+        return $html;
+    }
+
+    private static function buildVideoPlatformLabelHtml($platform)
+    {
+        $platform = strtolower(trim((string)$platform));
+        $platformLabel = strtoupper($platform);
+        $iconSvg = self::getVideoPlatformIconSvg($platform);
+
+        if ($iconSvg !== '') {
+            return '<span class="enhancement-platform-icon" title="' . htmlspecialchars($platformLabel, ENT_QUOTES, 'UTF-8') . '" '
+                . 'style="display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;line-height:1;vertical-align:middle;">'
+                . $iconSvg
+                . '</span>';
+        }
+
+        return htmlspecialchars($platformLabel, ENT_QUOTES, 'UTF-8');
+    }
+
+    private static function getVideoPlatformIconSvg($platform)
+    {
+        switch ($platform) {
+            case 'bilibili':
+                return '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 640 640" aria-hidden="true" focusable="false">'
+                    . '<path fill="#74C0FC" d="M552.6 168.1C569.3 186.2 577 207.8 575.9 233.8L575.9 436.2C575.5 462.6 566.7 484.3 549.4 501.3C532.2 518.3 510.3 527.2 483.9 528L156 528C129.6 527.2 107.8 518.2 90.7 500.8C73.6 483.4 64.7 460.5 64 432.2L64 233.8C64.8 207.8 73.7 186.2 90.7 168.1C107.8 151.8 129.5 142.8 156 142L185.4 142L160 116.2C154.3 110.5 151.4 103.2 151.4 94.4C151.4 85.6 154.3 78.3 160 72.6C165.7 66.9 173 64 181.9 64C190.8 64 198 66.9 203.8 72.6L277.1 142L365.1 142L439.6 72.6C445.7 66.9 453.2 64 462 64C470.8 64 478.1 66.9 483.9 72.6C489.6 78.3 492.5 85.6 492.5 94.4C492.5 103.2 489.6 110.5 483.9 116.2L458.6 142L487.9 142C514.3 142.8 535.9 151.8 552.6 168.1zM513.8 237.8C513.4 228.2 510.1 220.4 503.1 214.3C497.9 208.2 489.1 204.9 480.4 204.5L160 204.5C150.4 204.9 142.6 208.2 136.4 214.3C130.3 220.4 127 228.2 126.6 237.8L126.6 432.2C126.6 441.4 129.9 449.2 136.4 455.7C142.9 462.2 150.8 465.5 160 465.5L480.4 465.5C489.6 465.5 497.4 462.2 503.7 455.7C510 449.2 513.4 441.4 513.8 432.2L513.8 237.8zM249.5 280.5C255.8 286.8 259.2 294.6 259.6 303.7L259.6 337C259.2 346.2 255.9 353.9 249.8 360.2C243.6 366.5 235.8 369.7 226.2 369.7C216.6 369.7 208.7 366.5 202.6 360.2C196.5 353.9 193.2 346.2 192.8 337L192.8 303.7C193.2 294.6 196.6 286.8 202.9 280.5C209.2 274.2 216.1 270.9 226.2 270.5C235.4 270.9 243.2 274.2 249.5 280.5zM441 280.5C447.3 286.8 450.7 294.6 451.1 303.7L451.1 337C450.7 346.2 447.4 353.9 441.3 360.2C435.2 366.5 427.3 369.7 417.7 369.7C408.1 369.7 400.3 366.5 394.1 360.2C387.1 353.9 384.7 346.2 384.4 337L384.4 303.7C384.7 294.6 388.1 286.8 394.4 280.5C400.7 274.2 408.5 270.9 417.7 270.5C426.9 270.9 434.7 274.2 441 280.5z"/>'
+                    . '</svg>';
+            default:
+                return '';
+        }
+    }
+
+    private static function getVideoEmbedUrl($videoInfo)
+    {
+        $platform = isset($videoInfo['platform']) ? strtolower((string)$videoInfo['platform']) : '';
+        $videoId = isset($videoInfo['videoId']) ? (string)$videoInfo['videoId'] : '';
+
+        if ($videoId === '') {
+            return '';
+        }
+
+        switch ($platform) {
+            case 'youtube':
+                return 'https://www.youtube.com/embed/' . rawurlencode($videoId);
+            case 'bilibili':
+                $idType = isset($videoInfo['idType']) ? strtolower((string)$videoInfo['idType']) : 'bvid';
+                if ($idType === 'aid') {
+                    return 'https://player.bilibili.com/player.html?aid=' . rawurlencode($videoId) . '&high_quality=1';
+                }
+                return 'https://player.bilibili.com/player.html?bvid=' . rawurlencode($videoId) . '&high_quality=1';
+            case 'youku':
+                return 'https://player.youku.com/embed/' . rawurlencode($videoId);
+            default:
+                return '';
+        }
+    }
+
     public static function parse($text, $widget, $lastResult)
     {
         $text = empty($lastResult) ? $text : $lastResult;
+        if (!is_string($text)) {
+            return $text;
+        }
 
-        if ($widget instanceof Widget_Archive || $widget instanceof Widget_Abstract_Comments) {
-            return preg_replace_callback("/<(?:links|enhancement)\\s*(\\d*)\\s*(\\w*)\\s*(\\d*)>\\s*(.*?)\\s*<\\/(?:links|enhancement)>/is", array('Enhancement_Plugin', 'parseCallback'), $text ? $text : '');
+        $isContentWidget = $widget instanceof Widget_Abstract_Contents;
+        $isCommentWidget = $widget instanceof Widget_Abstract_Comments;
+
+        if ($isContentWidget || $isCommentWidget) {
+            if ($isCommentWidget) {
+                self::upgradeCommentWidgetUrl($widget);
+            }
+
+            $text = preg_replace_callback("/<(?:links|enhancement)\\s*(\\d*)\\s*(\\w*)\\s*(\\d*)>\\s*(.*?)\\s*<\\/(?:links|enhancement)>/is", array('Enhancement_Plugin', 'parseCallback'), $text ? $text : '');
+
+            $text = self::rewriteExternalLinks($text);
+
+            if (self::blankTargetEnabled()) {
+                $text = self::addBlankTarget($text);
+            }
+
+            if ($isContentWidget && self::videoParserEnabled()) {
+                $text = self::replaceVideoLinks($text);
+            }
+
+            return $text;
         } else {
             return $text;
         }
