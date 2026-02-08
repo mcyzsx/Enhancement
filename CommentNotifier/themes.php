@@ -13,13 +13,8 @@
         <tbody>
         <?php
 
-        use Typecho\Plugin;
-        use Typecho\Db;
-        use Widget\Plugins\Edit;
-        use Widget\{Options, Notice};
-
         try {
-            $plugin = Options::alloc()->plugin('Enhancement');
+            $plugin = Typecho_Widget::widget('Widget_Options')->plugin('Enhancement');
         } catch (Exception $e) {
             $plugin = (object) array();
         }
@@ -28,8 +23,8 @@
         /* @var $response */
         /* @var $options */
         if ($request->change) {
-            Edit::configPlugin('Enhancement',array('template'=>$request->change));
-            Notice::alloc()->set(_t("邮件模板启动成功"), 'success');
+            Typecho_Widget::widget('Widget_Plugins_Edit')->configPlugin('Enhancement',array('template'=>$request->change));
+            Typecho_Widget::widget('Widget_Notice')->set(_t("邮件模板启动成功"), 'success');
             $template = $request->change;
             $response->redirect($options->adminUrl . 'extending.php?panel=' . Enhancement_Plugin::$commentNotifierPanel);
         }
@@ -46,7 +41,7 @@
 
             if (file_exists($themeFile)) {//判断是否存在模板
                 $name = basename($theme);
-                $info = Plugin::parseInfo($themeFile);
+                $info = Typecho_Plugin::parseInfo($themeFile);
 
                 $screen = array_filter(glob($theme . '/*'), function ($path) {
                     return preg_match("/screenshot\.(jpg|png|gif|bmp|jpeg|webp)$/i", $path);
@@ -55,7 +50,7 @@
                 if ($screen) {
                     $img = $options->pluginUrl . '/Enhancement/CommentNotifier/template/' . $name . '/' . basename(current($screen));
                 } else {
-                    $img = Common::url('noscreen.png', $options->adminStaticUrl('img'));
+                    $img = Typecho_Common::url('noscreen.png', $options->adminStaticUrl('img'));
                 }
 
 

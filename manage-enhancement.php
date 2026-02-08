@@ -33,6 +33,7 @@ include 'menu.php';
 
                 <div class="col-mb-12 col-tb-8" role="main">
                     <?php
+                        $db = Typecho_Db::get();
                         $prefix = $db->getPrefix();
                         $items = $db->fetchAll($db->select()->from($prefix.'links')->order($prefix.'links.order', Typecho_Db::SORT_ASC));
                     ?>

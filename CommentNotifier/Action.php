@@ -1,5 +1,4 @@
 <?php
-use Widget\Options;
 use PHPMailer\PHPMailer\PHPMailer;
 use PHPMailer\PHPMailer\Exception;
 
@@ -16,7 +15,7 @@ class Enhancement_CommentNotifier_Action extends Typecho_Widget implements Widge
 
     public function action($data = "")
     {
-        $options = Options::alloc();
+        $options = Typecho_Widget::widget('Widget_Options');
         try {
             $plugin = $options->plugin('Enhancement');
         } catch (Exception $e) {

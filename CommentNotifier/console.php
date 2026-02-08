@@ -2,12 +2,8 @@
 include 'header.php';
 include 'menu.php';
 
-use Typecho\Widget;
-use Widget\Notice;
-use Widget\Options;
-
-/* @var Options $options */
-Options::alloc()->to($options);
+/* @var Widget_Options $options */
+Typecho_Widget::widget('Widget_Options')->to($options);
 
 /** 初始化上下文 */
 $request = $options->request;
@@ -15,7 +11,7 @@ $response = $options->response;
 $current = $request->get('act', 'index');
 $theme = $request->get('file', 'owner.html');
 try {
-    $plugin = Options::alloc()->plugin('Enhancement');
+    $plugin = Typecho_Widget::widget('Widget_Options')->plugin('Enhancement');
 } catch (Exception $e) {
     $plugin = (object) array();
 }
@@ -43,13 +39,14 @@ function editTheme($file)
     $path = dirname(__FILE__) . DIRECTORY_SEPARATOR . 'template' . DIRECTORY_SEPARATOR . $template . DIRECTORY_SEPARATOR . $file;
     if (file_exists($path) && is_writeable($path)) {
         $handle = fopen($path, 'wb');
-        if ($handle && fwrite($handle, Options::alloc()->request->content)) {
+        $options = Typecho_Widget::widget('Widget_Options');
+        if ($handle && fwrite($handle, $options->request->content)) {
             fclose($handle);
-            Notice::alloc()->set(_t("文件 %s 的更改已经保存", $file), 'success');
+            Typecho_Widget::widget('Widget_Notice')->set(_t("文件 %s 的更改已经保存", $file), 'success');
         } else {
-            Notice::alloc()->set(_t("文件 %s 无法被写入", $file), 'error');
+            Typecho_Widget::widget('Widget_Notice')->set(_t("文件 %s 无法被写入", $file), 'error');
         }
-        Options::alloc()->response->goBack();
+        $options->response->goBack();
     } else {
         throw new Typecho_Widget_Exception(_t('您编辑的模板文件不存在'));
     }
@@ -187,7 +184,7 @@ class Enhancement_CommentNotifier_Console extends Typecho_Widget
             <?php else: ?>
                 <?php
                 /** @var Enhancement_CommentNotifier_Console $files */
-                Widget::widget('Enhancement_CommentNotifier_Console')->to($files);
+                Typecho_Widget::widget('Enhancement_CommentNotifier_Console')->to($files);
                 ?>
                 <div class="typecho-edit-theme">
                     <div class="col-mb-12 col-tb-8 col-9 content">
