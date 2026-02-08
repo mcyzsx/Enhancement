@@ -191,9 +191,6 @@ class Enhancement_Plugin implements Typecho_Plugin_Interface
         align-items: center;
         margin-top: 8px;
     }
-    .enhancement-backup-actions input[type="file"]{
-        max-width: 320px;
-    }
 </style>';
         echo '<div class="typecho-option" style="margin-top:12px;">
             <button type="button" class="btn" id="enhancement-links-help-toggle">帮助</button>
@@ -623,22 +620,19 @@ class Enhancement_Plugin implements Typecho_Plugin_Interface
         echo '<div class="typecho-option">'
             . '<h3 class="enhancement-title">设置备份</h3>'
             . '<div class="enhancement-backup-box">'
-            . '<p style="margin:0;">支持一键下载当前插件配置，也可上传 JSON 备份一键恢复。</p>'
+            . '<p style="margin:0;">备份将直接保存到数据库，恢复时默认使用最近一次备份。</p>'
             . '<div class="enhancement-backup-actions">'
-            . '<button type="submit" class="btn" formaction="' . htmlspecialchars($backupUrl, ENT_QUOTES, 'UTF-8') . '">' . _t('一键备份（下载）') . '</button>'
-            . '<input type="file" name="settings_backup_file" id="settings_backup_file" accept=".json,application/json">'
-            . '<button type="submit" class="btn primary" formaction="' . htmlspecialchars($restoreUrl, ENT_QUOTES, 'UTF-8') . '" formenctype="multipart/form-data" id="enhancement-restore-settings-btn">' . _t('一键恢复') . '</button>'
+            . '<button type="submit" class="btn" formaction="' . htmlspecialchars($backupUrl, ENT_QUOTES, 'UTF-8') . '">' . _t('一键备份到数据库') . '</button>'
+            . '<button type="submit" class="btn primary" formaction="' . htmlspecialchars($restoreUrl, ENT_QUOTES, 'UTF-8') . '" id="enhancement-restore-settings-btn">' . _t('一键从数据库恢复') . '</button>'
             . '</div>'
-            . '<p style="margin:8px 0 0;color:#666;">恢复会覆盖当前插件设置，请先备份再操作。</p>'
+            . '<p style="margin:8px 0 0;color:#666;">恢复会覆盖当前插件设置，请确认后操作。</p>'
             . '</div>'
             . '</div>';
         echo '<script>(function(){'
             . 'var btn=document.getElementById("enhancement-restore-settings-btn");'
-            . 'var file=document.getElementById("settings_backup_file");'
-            . 'if(!btn||!file){return;}'
+            . 'if(!btn){return;}'
             . 'btn.addEventListener("click",function(e){'
-            . 'if(!file.value){e.preventDefault();alert("请先选择备份 JSON 文件");return;}'
-            . 'if(!window.confirm("确定要恢复插件设置吗？当前设置将被覆盖。")){e.preventDefault();}'
+            . 'if(!window.confirm("确定要从数据库最近一次备份恢复吗？当前设置将被覆盖。")){e.preventDefault();}'
             . '});'
             . '})();</script>';
 
