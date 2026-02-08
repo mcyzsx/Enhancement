@@ -1302,6 +1302,9 @@ class Enhancement_Plugin implements Typecho_Plugin_Interface
         if (!($archive instanceof Widget_Archive) || !$archive->is('single')) {
             return;
         }
+
+        self::renderCommentAuthorLinkEnhancer($archive);
+
         if (!self::turnstileReady()) {
             return;
         }
@@ -1347,6 +1350,69 @@ class Enhancement_Plugin implements Typecho_Plugin_Interface
             . 'var id=window.turnstile.render(els[j]);'
             . 'if(id){els[j].setAttribute("data-widget-id", id);}'
             . '}'
+            . '}'
+            . '}'
+            . '})();</script>';
+    }
+
+    private static function renderCommentAuthorLinkEnhancer($archive = null)
+    {
+        if (!($archive instanceof Widget_Archive) || !$archive->is('single')) {
+            return;
+        }
+
+        $enableBlankTarget = self::blankTargetEnabled();
+        $enableGoRedirect = self::goRedirectEnabled();
+        if (!$enableBlankTarget && !$enableGoRedirect) {
+            return;
+        }
+
+        $options = Typecho_Widget::widget('Widget_Options');
+        $siteHost = self::normalizeHost(parse_url((string)$options->siteUrl, PHP_URL_HOST));
+        $goBase = Typecho_Common::url('go/', $options->index);
+        $goPath = (string)parse_url($goBase, PHP_URL_PATH);
+        $goPath = '/' . ltrim($goPath, '/');
+        $whitelist = array_values(self::parseGoRedirectWhitelist());
+
+        echo '<script>(function(){'
+            . 'var enableBlank=' . json_encode($enableBlankTarget) . ';'
+            . 'var enableGo=' . json_encode($enableGoRedirect) . ';'
+            . 'var siteHost=' . json_encode($siteHost) . ';'
+            . 'var goBase=' . json_encode($goBase) . ';'
+            . 'var goPath=' . json_encode($goPath) . ';'
+            . 'var whitelist=' . json_encode($whitelist) . ';'
+            . 'var links=document.querySelectorAll("#comments .comment-author a[href], #comments .comment__author-name a[href], .comment-author a[href], .comment__author-name a[href], .comment-meta .comment-author a[href], .vcard a[href]");'
+            . 'if(!links||!links.length){return;}'
+            . 'function normalizeHost(host){host=(host||"").toLowerCase().trim();if(host.indexOf("www.")==0){host=host.slice(4);}return host;}'
+            . 'function isWhitelisted(host){if(!host){return false;}host=normalizeHost(host);for(var i=0;i<whitelist.length;i++){var domain=normalizeHost(whitelist[i]);if(!domain){continue;}if(host===domain){return true;}if(host.length>domain.length&&host.slice(-1*(domain.length+1))==="."+domain){return true;}}return false;}'
+            . 'function isGoHref(url){if(!url){return false;}if(goBase&&url.indexOf(goBase)===0){return true;}try{var parsed=new URL(url,window.location.href);if(!goPath||goPath==="/"){return false;}var path="/"+(parsed.pathname||"").replace(/^\/+/,"");var normalizedGoPath="/"+String(goPath).replace(/^\/+/,"");return path.indexOf(normalizedGoPath)===0;}catch(e){return false;}}'
+            . 'function toBase64Url(input){try{var utf8=unescape(encodeURIComponent(input));var b64=btoa(utf8);return b64.replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/g,"");}catch(e){return "";}}'
+            . 'for(var i=0;i<links.length;i++){' 
+            . 'var link=links[i];'
+            . 'var href=(link.getAttribute("href")||"").trim();'
+            . 'if(!href){continue;}'
+            . 'if(enableGo&&!isGoHref(href)){' 
+            . 'try{'
+            . 'var lower=href.toLowerCase();'
+            . 'if(lower.indexOf("mailto:")!==0&&lower.indexOf("tel:")!==0&&lower.indexOf("javascript:")!==0&&lower.indexOf("data:")!==0&&href.indexOf("#")!==0&&href.indexOf("/")!==0&&href.indexOf("?")!==0){'
+            . 'var parsed=new URL(href,window.location.href);'
+            . 'var protocol=(parsed.protocol||"").toLowerCase();'
+            . 'var host=normalizeHost(parsed.hostname||"");'
+            . 'if((protocol==="http:"||protocol==="https:")&&host&&host!==normalizeHost(siteHost)&&!isWhitelisted(host)){'
+            . 'var normalized=parsed.href;'
+            . 'var token=toBase64Url(normalized);'
+            . 'if(token){link.setAttribute("href", String(goBase||"")+token);href=link.getAttribute("href")||href;}'
+            . '}'
+            . '}'
+            . '}catch(e){}'
+            . '}'
+            . 'if(enableBlank){'
+            . 'link.setAttribute("target","_blank");'
+            . 'var rel=(link.getAttribute("rel")||"").toLowerCase().trim();'
+            . 'var rels=rel?rel.split(/\s+/):[];'
+            . 'if(rels.indexOf("noopener")<0){rels.push("noopener");}'
+            . 'if(rels.indexOf("noreferrer")<0){rels.push("noreferrer");}'
+            . 'link.setAttribute("rel",rels.join(" ").trim());'
             . '}'
             . '}'
             . '})();</script>';
@@ -2748,6 +2814,16 @@ while ($tags->next()) {
 
     private static function extractVideoInfo($url)
     {
+        $url = trim(html_entity_decode((string)$url, ENT_QUOTES, 'UTF-8'));
+        if ($url === '') {
+            return null;
+        }
+
+        $decodedGoUrl = self::decodeGoRedirectUrl($url);
+        if ($decodedGoUrl !== '') {
+            $url = $decodedGoUrl;
+        }
+
         if (preg_match('/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([^&\n?#\/]+)/i', $url, $matches)) {
             return array(
                 'platform' => 'youtube',
