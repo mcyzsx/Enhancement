@@ -238,6 +238,7 @@ class Enhancement_Plugin implements Typecho_Plugin_Interface
         vertical-align: middle;
     }
     .enhancement-backup-inline-btn{
+        display: inline-block;
         padding: 2px 8px;
         font-size: 12px;
         line-height: 1.6;
@@ -245,6 +246,7 @@ class Enhancement_Plugin implements Typecho_Plugin_Interface
         border-radius: 4px;
         background: #fff;
         color: #334155;
+        text-decoration: none;
         cursor: pointer;
     }
     .enhancement-backup-inline-btn:hover{
@@ -700,6 +702,20 @@ class Enhancement_Plugin implements Typecho_Plugin_Interface
             . 'btn.addEventListener("click",function(e){'
             . 'if(!window.confirm("确定要从数据库最近一次备份恢复吗？当前设置将被覆盖。")){e.preventDefault();}'
             . '});'
+            . '})();</script>';
+
+        echo '<script>(function(){'
+            . 'var buttons=document.querySelectorAll(".enhancement-backup-box button[formaction], .enhancement-backup-list button[formaction]");'
+            . 'if(!buttons||!buttons.length){return;}'
+            . 'for(var i=0;i<buttons.length;i++){'
+            . 'buttons[i].addEventListener("click",function(e){'
+            . 'if(e.defaultPrevented){return;}'
+            . 'e.preventDefault();'
+            . 'var target=this.getAttribute("formaction");'
+            . 'if(!target){return;}'
+            . 'window.location.href=target;'
+            . '});'
+            . '}'
             . '})();</script>';
 
         $backupRows = self::listSettingsBackups(5);
