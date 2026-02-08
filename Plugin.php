@@ -2054,11 +2054,98 @@ class Enhancement_Plugin implements Typecho_Plugin_Interface
     {
         AttachmentHelper::addEnhancedFeatures();
         self::tagsList();
+        self::colorPickerHelper();
     }
 
     public static function writePageBottom()
     {
         AttachmentHelper::addEnhancedFeatures();
+        self::colorPickerHelper();
+    }
+
+    /**
+     * 标题颜色选择器辅助
+     */
+    public static function colorPickerHelper()
+    {
+?>
+<style>
+/* 颜色选择器链接按钮样式 */
+.color-picker-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin-left: 8px;
+    padding: 4px 10px;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: #fff;
+    text-decoration: none;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 500;
+    transition: all 0.2s ease;
+    white-space: nowrap;
+    vertical-align: middle;
+}
+
+.color-picker-link:hover {
+    background: linear-gradient(135deg, #764ba2 0%, #667eea 100%);
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(102, 126, 234, 0.4);
+}
+
+.color-picker-link:active {
+    transform: translateY(0);
+}
+
+.color-picker-link .icon {
+    width: 14px;
+    height: 14px;
+    fill: currentColor;
+}
+
+/* 移动端适配 */
+@media screen and (max-width: 768px) {
+    .color-picker-link {
+        padding: 6px 12px;
+        font-size: 13px;
+        margin-left: 6px;
+    }
+    
+    .color-picker-link .icon {
+        width: 16px;
+        height: 16px;
+    }
+}
+
+/* 深色模式适配 */
+@media (prefers-color-scheme: dark) {
+    .color-picker-link {
+        background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+    }
+    
+    .color-picker-link:hover {
+        background: linear-gradient(135deg, #7c3aed 0%, #4f46e5 100%);
+        box-shadow: 0 2px 8px rgba(124, 58, 237, 0.4);
+    }
+}
+</style>
+<script>
+$(document).ready(function(){
+    // 为标题颜色输入框添加颜色选择器链接
+    var $titleColorInput = $('input[name="fields[post_title_color]"]');
+    if ($titleColorInput.length) {
+        var colorPickerLink = '<a href="https://htmlcolorcodes.com/zh/" target="_blank" rel="noopener noreferrer" class="color-picker-link" title="打开颜色选择器">' +
+            '<svg class="icon" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">' +
+            '<path d="M12 3c-4.97 0-9 4.03-9 9s4.03 9 9 9c.83 0 1.5-.67 1.5-1.5 0-.39-.15-.74-.39-1.01-.23-.26-.38-.61-.38-.99 0-.83.67-1.5 1.5-1.5H16c2.76 0 5-2.24 5-5 0-4.42-4.03-8-9-8zm-5.5 9c-.83 0-1.5-.67-1.5-1.5S5.67 9 6.5 9 8 9.67 8 10.5 7.33 12 6.5 12zm3-4C8.67 8 8 7.33 8 6.5S8.67 5 9.5 5s1.5.67 1.5 1.5S10.33 8 9.5 8zm5 0c-.83 0-1.5-.67-1.5-1.5S13.67 5 14.5 5s1.5.67 1.5 1.5S15.33 8 14.5 8zm3 4c-.83 0-1.5-.67-1.5-1.5S16.67 9 17.5 9s1.5.67 1.5 1.5-.67 1.5-1.5 1.5z"/>' +
+            '</svg>' +
+            '<span>选色</span>' +
+            '</a>';
+        $titleColorInput.after(colorPickerLink);
+    }
+});
+</script>
+<?php
     }
 
     public static function tagsList()
