@@ -6,6 +6,12 @@ class Enhancement_Action extends Typecho_Widget implements Widget_Interface_Do
     private $options;
     private $prefix;
 
+    public function __construct($request, $response, $params = null)
+    {
+        parent::__construct($request, $response, $params);
+        $this->db = Typecho_Db::get();
+    }
+
     private function normalizePluginSettings(array $settings)
     {
         $normalized = array();
@@ -40,8 +46,9 @@ class Enhancement_Action extends Typecho_Widget implements Widget_Interface_Do
         $settings = array();
 
         try {
-            $row = $this->db->fetchRow(
-                $this->db->select('value')
+            $db = Typecho_Db::get();
+            $row = $db->fetchRow(
+                $db->select('value')
                     ->from('table.options')
                     ->where('name = ?', 'plugin:Enhancement')
                     ->where('user = ?', 0)

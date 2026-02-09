@@ -33,6 +33,7 @@ include 'menu.php';
             <div class="col-mb-12 col-tb-8" role="main">
                 <?php
                     Enhancement_Plugin::ensureMomentsTable();
+                    $db = Typecho_Db::get();
                     $prefix = $db->getPrefix();
                     $moments = $db->fetchAll($db->select()->from($prefix . 'moments')->order($prefix . 'moments.mid', Typecho_Db::SORT_DESC));
                 ?>

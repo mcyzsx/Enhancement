@@ -7,6 +7,13 @@ class Enhancement_Memos_Action extends Typecho_Widget implements Widget_Interfac
     private $options;
     private $prefix;
 
+    public function __construct($request, $response, $params = null)
+    {
+        parent::__construct($request, $response, $params);
+        $this->db = Typecho_Db::get();
+        $this->prefix = $this->db->getPrefix();
+    }
+
     private function getBearerToken(): ?string
     {
         $headers = array(
