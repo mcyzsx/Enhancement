@@ -5,7 +5,7 @@
  * 具体功能包含:插件/主题zip上传,友情链接,瞬间,网站地图,编辑器增强,站外链接跳转,评论邮件通知,QQ通知,常见视频链接 音乐链接 解析等
  * @package Enhancement
  * @author jkjoy
- * @version 1.1.4
+ * @version 1.1.5
  * @link HTTPS://IMSUN.ORG
  * @dependence 14.10.10-*
  */
@@ -98,6 +98,7 @@ class Enhancement_Plugin implements Typecho_Plugin_Interface
         Typecho_Plugin::factory('Widget_Abstract_Contents')->excerptEx = array('Enhancement_Plugin', 'parse');
         Typecho_Plugin::factory('Widget_Abstract_Comments')->contentEx = array('Enhancement_Plugin', 'parse');
         Typecho_Plugin::factory('Widget_Archive')->handleInit = array('Enhancement_Plugin', 'applyAvatarPrefix');
+        Typecho_Plugin::factory('Widget_Archive')->header = array('Enhancement_Plugin', 'archiveHeader');
         Typecho_Plugin::factory('Widget_Archive')->footer = array('Enhancement_Plugin', 'turnstileFooter');
         Typecho_Plugin::factory('Widget_Archive')->callEnhancement = array('Enhancement_Plugin', 'output_str');
         return _t($info);
@@ -488,6 +489,26 @@ class Enhancement_Plugin implements Typecho_Plugin_Interface
             _t('将 YouTube、Bilibili、优酷链接自动替换为播放器')
         );
         $form->addInput($enableVideoParser);
+
+        $enableMusicParser = new Typecho_Widget_Helper_Form_Element_Radio(
+            'enable_music_parser',
+            array('1' => _t('启用'), '0' => _t('禁用')),
+            '0',
+            _t('音乐链接解析'),
+            _t('将网易云音乐、QQ音乐、酷狗音乐链接自动替换为 APlayer 播放器')
+        );
+        $form->addInput($enableMusicParser);
+
+        $defaultMetingApi = self::defaultLocalMetingApiTemplate(Typecho_Widget::widget('Widget_Options'));
+
+        $musicMetingApi = new Typecho_Widget_Helper_Form_Element_Text(
+            'music_meting_api',
+            null,
+            $defaultMetingApi,
+            _t('Meting API 地址'),
+            _t('用于 music 链接解析播放器的数据源，默认本地接口；保留 :server/:type/:id/:r 占位符')
+        );
+        $form->addInput($musicMetingApi->addRule('maxLength', _t('Meting API 地址最多500个字符'), 500));
 
         $enableBlankTarget = new Typecho_Widget_Helper_Form_Element_Radio(
             'enable_blank_target',
@@ -2649,12 +2670,272 @@ class Enhancement_Plugin implements Typecho_Plugin_Interface
     public static function writePostBottom()
     {
         AttachmentHelper::addEnhancedFeatures();
+        self::shortcodesHelper();
         self::tagsList();
     }
 
     public static function writePageBottom()
     {
         AttachmentHelper::addEnhancedFeatures();
+        self::shortcodesHelper();
+    }
+
+    public static function shortcodesHelper()
+    {
+?>
+<style>
+#wmd-button-row .enh-wmd-shortcode-btn{position:relative;display:block;float:left;width:20px;height:20px;cursor:pointer;}
+#wmd-button-row .enh-wmd-shortcode-btn .enh-wmd-icon{display:flex;align-items:center;justify-content:center;width:100%;height:100%;color:#6b7280;}
+#wmd-button-row .enh-wmd-shortcode-btn .enh-wmd-icon svg{display:block;width:14px;height:14px;}
+#wmd-button-row .enh-wmd-shortcode-btn:hover .enh-wmd-icon{color:#374151;}
+#wmd-button-row .enh-wmd-shortcode-spacer{float:left;width:1px;height:18px;margin:1px 6px 0 4px;background:#d1d5db;}
+.enh-shortcodes-modal-mask{display:none;position:fixed;inset:0;z-index:999999;background:rgba(15,23,42,.42);}
+.enh-shortcodes-modal{position:absolute;top:14vh;left:50%;transform:translateX(-50%);width:min(640px,92vw);background:#fff;border-radius:8px;box-shadow:0 12px 30px rgba(15,23,42,.22);border:1px solid #e5e7eb;padding:14px;}
+.enh-shortcodes-modal-title{font-size:14px;font-weight:600;color:#111827;margin:0 0 10px;}
+.enh-shortcodes-modal-input{width:100%;min-height:140px;resize:vertical;border:1px solid #d1d5db;border-radius:6px;padding:8px 10px;line-height:1.6;color:#111827;background:#fff;box-sizing:border-box;}
+.enh-shortcodes-modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:10px;}
+.enh-shortcodes-modal-btn{border:1px solid #d1d5db;border-radius:4px;background:#fff;color:#374151;padding:5px 12px;cursor:pointer;}
+.enh-shortcodes-modal-btn.primary{background:#467B96;border-color:#467B96;color:#fff;}
+.enh-shortcodes-modal-btn:hover{opacity:.92;}
+</style>
+<script>
+(function ($) {
+    $(function () {
+        var $text = $('#text');
+        if (!$text.length) {
+            return;
+        }
+
+        var $toolbar = $('#wmd-button-row');
+        if (!$toolbar.length || $('#enh-wmd-shortcode-group').length) {
+            return;
+        }
+
+        var icons = {
+            reply: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" aria-hidden="true"><path fill="currentColor" d="M232,200a8,8,0,0,1-16,0,88.1,88.1,0,0,0-88-88H51.31l34.35,34.34a8,8,0,0,1-11.32,11.32l-48-48a8,8,0,0,1,0-11.32l48-48A8,8,0,0,1,85.66,61.66L51.31,96H128A104.11,104.11,0,0,1,232,200Z"></path></svg>',
+            primary: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="none" stroke="currentColor" stroke-width="18" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="128" cy="128" r="88"></circle><line x1="128" y1="72" x2="128" y2="144"></line><circle cx="128" cy="184" r="8" fill="currentColor" stroke="none"></circle></svg>',
+            success: '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" fill="#000000" viewBox="0 0 256 256"><path d="M173.66,98.34a8,8,0,0,1,0,11.32l-56,56a8,8,0,0,1-11.32,0l-24-24a8,8,0,0,1,11.32-11.32L112,148.69l50.34-50.35A8,8,0,0,1,173.66,98.34ZM232,128A104,104,0,1,1,128,24,104.11,104.11,0,0,1,232,128Zm-16,0a88,88,0,1,0-88,88A88.1,88.1,0,0,0,216,128Z"></path></svg>',
+            info: '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" fill="#000000" viewBox="0 0 256 256"><path d="M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Zm0,192a88,88,0,1,1,88-88A88.1,88.1,0,0,1,128,216Zm16-40a8,8,0,0,1-8,8,16,16,0,0,1-16-16V128a8,8,0,0,1,0-16,16,16,0,0,1,16,16v40A8,8,0,0,1,144,176ZM112,84a12,12,0,1,1,12,12A12,12,0,0,1,112,84Z"></path></svg>',
+            danger: '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" fill="#000000" viewBox="0 0 256 256"><path d="M236.8,188.09,149.35,36.22h0a24.76,24.76,0,0,0-42.7,0L19.2,188.09a23.51,23.51,0,0,0,0,23.72A24.35,24.35,0,0,0,40.55,224h174.9a24.35,24.35,0,0,0,21.33-12.19A23.51,23.51,0,0,0,236.8,188.09ZM222.93,203.8a8.5,8.5,0,0,1-7.48,4.2H40.55a8.5,8.5,0,0,1-7.48-4.2,7.59,7.59,0,0,1,0-7.72L120.52,44.21a8.75,8.75,0,0,1,15,0l87.45,151.87A7.59,7.59,0,0,1,222.93,203.8ZM120,144V104a8,8,0,0,1,16,0v40a8,8,0,0,1-16,0Zm20,36a12,12,0,1,1-12-12A12,12,0,0,1,140,180Z"></path></svg>',
+            article: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="none" stroke="currentColor" stroke-width="18" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M80 32h72l56 56v136H80z"></path><polyline points="152 32 152 88 208 88"></polyline><line x1="104" y1="132" x2="184" y2="132"></line><line x1="104" y1="164" x2="184" y2="164"></line></svg>',
+            github: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52 0-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.5-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.01.08-2.1 0 0 .67-.21 2.2.82A7.6 7.6 0 0 1 8 4.8c.68 0 1.37.09 2.01.27 1.53-1.04 2.2-.82 2.2-.82.44 1.09.16 1.9.08 2.1.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8z"></path></svg>'
+        };
+
+        var items = [
+            {
+                key: 'reply',
+                title: 'reply',
+                placeholder: '输入隐藏内容',
+                modalTitle: '输入需要隐藏的内容，回复后才能看到',
+                defaultText: '内容',
+                build: function (value) { return '[reply]' + value + '[/reply]'; }
+            },
+            {
+                key: 'primary',
+                title: 'primary',
+                placeholder: '输入 primary 内容',
+                modalTitle: '输入提示的内容',
+                defaultText: '内容',
+                build: function (value) { return '[primary]' + value + '[/primary]'; }
+            },
+            {
+                key: 'success',
+                title: 'success',
+                placeholder: '输入 success 内容',
+                modalTitle: '输入成功提示的内容',
+                defaultText: '内容',
+                build: function (value) { return '[success]' + value + '[/success]'; }
+            },
+            {
+                key: 'info',
+                title: 'info',
+                placeholder: '输入 info 内容',
+                modalTitle: '输入信息提示的内容',
+                defaultText: '内容',
+                build: function (value) { return '[info]' + value + '[/info]'; }
+            },
+            {
+                key: 'danger',
+                title: 'danger',
+                placeholder: '输入 danger 内容',
+                modalTitle: '输入警示的内容',
+                defaultText: '内容',
+                build: function (value) { return '[danger]' + value + '[/danger]'; }
+            },
+            {
+                key: 'article',
+                title: 'article',
+                modalTitle: '输入需要引用文章的cid',
+                placeholder: '输入需要引用文章的cid',
+                defaultText: '1',
+                useSelection: false,
+                build: function (value) {
+                    var cid = String(value || '').replace(/[^\d]/g, '');
+                    if (!cid) {
+                        cid = '1640';
+                    }
+                    return '[article id="' + cid + '"]';
+                }
+            },
+            {
+                key: 'github',
+                title: 'github',
+                placeholder: '输入仓库（例如 jkjoy/memos）',
+                modalTitle: '输入 GitHub 仓库名称（例如 jkjoy/memos）',
+                defaultText: 'jkjoy/memos',
+                build: function (value) {
+                    var repo = $.trim(String(value || '')).replace(/\s+/g, '');
+                    if (!repo) {
+                        repo = 'jkjoy/memos';
+                    }
+                    return '[github=' + repo + ']';
+                }
+            }
+        ];
+
+        var $group = $('<span id="enh-wmd-shortcode-group"></span>');
+        var lastSelection = {start: null, end: null};
+        var currentItem = null;
+
+        function getSelectionRange(value, textarea, range) {
+            var start = typeof textarea.selectionStart === 'number' ? textarea.selectionStart : value.length;
+            var end = typeof textarea.selectionEnd === 'number' ? textarea.selectionEnd : value.length;
+
+            if (range && typeof range.start === 'number' && typeof range.end === 'number') {
+                start = Math.max(0, Math.min(value.length, range.start));
+                end = Math.max(start, Math.min(value.length, range.end));
+            }
+
+            return {start: start, end: end};
+        }
+
+        function rememberSelection() {
+            var textarea = $text.get(0);
+            if (!textarea) {
+                return;
+            }
+
+            var value = $text.val() || '';
+            lastSelection = getSelectionRange(value, textarea);
+        }
+
+        function insertSnippet(snippet, range) {
+            var textarea = $text.get(0);
+            if (!textarea) {
+                return;
+            }
+
+            var value = $text.val() || '';
+            var selection = getSelectionRange(value, textarea, range);
+            var start = selection.start;
+            var end = selection.end;
+            var nextValue = value.substring(0, start) + snippet + value.substring(end);
+
+            $text.val(nextValue).trigger('input').trigger('change');
+            textarea.focus();
+
+            var cursor = start + snippet.length;
+            if (typeof textarea.setSelectionRange === 'function') {
+                textarea.setSelectionRange(cursor, cursor);
+            }
+            lastSelection = {start: cursor, end: cursor};
+        }
+
+        function ensureModal() {
+            if ($('#enh-shortcode-modal-mask').length) {
+                return;
+            }
+
+            var modalHtml = ''
+                + '<div id="enh-shortcode-modal-mask" class="enh-shortcodes-modal-mask">'
+                + '  <div class="enh-shortcodes-modal">'
+                + '    <h4 id="enh-shortcode-modal-title" class="enh-shortcodes-modal-title">插入短代码</h4>'
+                + '    <textarea id="enh-shortcode-modal-input" class="enh-shortcodes-modal-input" placeholder="输入内容"></textarea>'
+                + '    <div class="enh-shortcodes-modal-actions">'
+                + '      <button type="button" id="enh-shortcode-modal-cancel" class="enh-shortcodes-modal-btn">取消</button>'
+                + '      <button type="button" id="enh-shortcode-modal-confirm" class="enh-shortcodes-modal-btn primary">确定插入</button>'
+                + '    </div>'
+                + '  </div>'
+                + '</div>';
+
+            $('body').append(modalHtml);
+
+            $('#enh-shortcode-modal-mask').on('click', function (e) {
+                if (e.target && e.target.id === 'enh-shortcode-modal-mask') {
+                    $(this).hide();
+                }
+            });
+
+            $('#enh-shortcode-modal-cancel').on('click', function () {
+                $('#enh-shortcode-modal-mask').hide();
+            });
+
+            $('#enh-shortcode-modal-confirm').on('click', function () {
+                if (!currentItem || typeof currentItem.build !== 'function') {
+                    $('#enh-shortcode-modal-mask').hide();
+                    return;
+                }
+
+                var raw = $('#enh-shortcode-modal-input').val();
+                var value = $.trim(raw || '');
+                if (!value) {
+                    value = currentItem.defaultText || '内容';
+                }
+
+                var snippet = currentItem.build(value);
+                if (!snippet) {
+                    return;
+                }
+
+                var range = $('#enh-shortcode-modal-mask').data('selection') || lastSelection;
+                insertSnippet(snippet, range);
+                $('#enh-shortcode-modal-mask').hide();
+            });
+        }
+
+        function openModal(item) {
+            var textarea = $text.get(0);
+            if (!textarea) {
+                return;
+            }
+
+            currentItem = item;
+
+            var value = $text.val() || '';
+            var selection = getSelectionRange(value, textarea, lastSelection);
+            var selected = value.substring(selection.start, selection.end);
+
+            ensureModal();
+
+            var useSelection = item.useSelection !== false;
+            var defaultValue = (useSelection && selected !== '') ? selected : (item.defaultText || '');
+            $('#enh-shortcode-modal-title').text(item.modalTitle || ('插入 ' + item.title + ' 短代码'));
+            $('#enh-shortcode-modal-input').attr('placeholder', item.placeholder || '输入内容').val(defaultValue);
+            $('#enh-shortcode-modal-mask').data('selection', selection).show();
+            $('#enh-shortcode-modal-input').focus();
+        }
+
+        for (var i = 0; i < items.length; i++) {
+            (function (item) {
+                var iconSvg = icons[item.key] || icons.info;
+                var $btn = $('<li class="wmd-button enh-wmd-shortcode-btn" id="wmd-enh-' + item.key + '-button" title="' + item.title + '"><span class="enh-wmd-icon">' + iconSvg + '</span></li>');
+                $btn.on('click', function (e) {
+                    e.preventDefault();
+                    openModal(item);
+                });
+                $group.append($btn);
+            })(items[i]);
+        }
+
+        $text.on('keyup click mouseup select focus', rememberSelection);
+        rememberSelection();
+
+        $toolbar.append('<li class="wmd-spacer enh-wmd-shortcode-spacer" aria-hidden="true"></li>');
+        $toolbar.append($group);
+    });
+})(jQuery);
+</script>
+<?php
     }
 
     public static function tagsList()
@@ -2776,6 +3057,62 @@ while ($tags->next()) {
             return false;
         }
         return $settings->enable_video_parser == '1';
+    }
+
+    public static function musicParserEnabled(): bool
+    {
+        $settings = self::pluginSettings(Typecho_Widget::widget('Widget_Options'));
+        if (!isset($settings->enable_music_parser)) {
+            return false;
+        }
+        return $settings->enable_music_parser == '1';
+    }
+
+    private static function musicMetingApiTemplate(): string
+    {
+        $options = Typecho_Widget::widget('Widget_Options');
+        $settings = self::pluginSettings($options);
+        $value = isset($settings->music_meting_api) ? trim((string)$settings->music_meting_api) : '';
+        $defaultLocal = self::defaultLocalMetingApiTemplate($options);
+
+        if ($value === '' || $value === 'https://api.injahow.cn/meting/?server=:server&type=:type&id=:id&r=:r') {
+            $value = $defaultLocal;
+        }
+
+        return $value;
+    }
+
+    private static function defaultLocalMetingApiTemplate($options = null): string
+    {
+        if ($options === null) {
+            $options = Typecho_Widget::widget('Widget_Options');
+        }
+
+        $base = Typecho_Common::url('action/enhancement-edit', $options->index);
+        return $base . '?do=meting-api&server=:server&type=:type&id=:id&r=:r';
+    }
+
+    public static function archiveHeader($archive = null)
+    {
+        if (!self::musicParserEnabled()) {
+            return;
+        }
+
+        $options = Typecho_Widget::widget('Widget_Options');
+        $base = rtrim((string)$options->pluginUrl, '/');
+        if ($base === '') {
+            return;
+        }
+
+        $cssUrl = htmlspecialchars($base . '/Enhancement/Meting/APlayer.min.css', ENT_QUOTES, 'UTF-8');
+        $aPlayerJsUrl = htmlspecialchars($base . '/Enhancement/Meting/APlayer.min.js', ENT_QUOTES, 'UTF-8');
+        $metingJsUrl = htmlspecialchars($base . '/Enhancement/Meting/Meting.min.js', ENT_QUOTES, 'UTF-8');
+        $api = html_entity_decode(self::musicMetingApiTemplate(), ENT_QUOTES, 'UTF-8');
+
+        echo '<link rel="stylesheet" href="' . $cssUrl . '">' . "\n";
+        echo '<script src="' . $aPlayerJsUrl . '"></script>' . "\n";
+        echo '<script>var meting_api=' . json_encode($api, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . ';</script>' . "\n";
+        echo '<script src="' . $metingJsUrl . '"></script>' . "\n";
     }
 
     public static function blankTargetEnabled(): bool
@@ -3440,6 +3777,141 @@ while ($tags->next()) {
         return $content;
     }
 
+    private static function replaceMusicLinks($content)
+    {
+        if (empty($content)) {
+            return $content;
+        }
+
+        $content = preg_replace_callback(
+            '/<a\s+[^>]*href=["\']([^"\']*)["\'][^>]*>.*?<\/a>/is',
+            function ($matches) {
+                $url = html_entity_decode($matches[1], ENT_QUOTES, 'UTF-8');
+                $musicInfo = self::extractMusicInfo($url);
+                if (!$musicInfo) {
+                    return $matches[0];
+                }
+
+                $player = self::generateMusicPlayer($musicInfo);
+                return $player !== '' ? $player : $matches[0];
+            },
+            $content
+        );
+
+        $content = preg_replace_callback(
+            '/https?:\/\/[^\s<]+/i',
+            function ($matches) {
+                $url = html_entity_decode($matches[0], ENT_QUOTES, 'UTF-8');
+                $musicInfo = self::extractMusicInfo($url);
+                if (!$musicInfo) {
+                    return $matches[0];
+                }
+
+                $player = self::generateMusicPlayer($musicInfo);
+                return $player !== '' ? $player : $matches[0];
+            },
+            $content
+        );
+
+        return $content;
+    }
+
+    private static function extractMusicInfo($url)
+    {
+        $url = trim(html_entity_decode((string)$url, ENT_QUOTES, 'UTF-8'));
+        if ($url === '') {
+            return null;
+        }
+
+        $decodedGoUrl = self::decodeGoRedirectUrl($url);
+        if ($decodedGoUrl !== '') {
+            $url = $decodedGoUrl;
+        }
+
+        $host = strtolower((string)parse_url($url, PHP_URL_HOST));
+        if ($host === '') {
+            return null;
+        }
+
+        if (strpos($host, 'music.163.com') !== false || strpos($host, '.163.com') !== false) {
+            if (preg_match('/(?:playlist|toplist)\?id=(\d+)/i', $url, $matches)) {
+                return array('server' => 'netease', 'type' => 'playlist', 'id' => $matches[1]);
+            }
+            if (preg_match('/album\?id=(\d+)/i', $url, $matches)) {
+                return array('server' => 'netease', 'type' => 'album', 'id' => $matches[1]);
+            }
+            if (preg_match('/song\?id=(\d+)/i', $url, $matches)) {
+                return array('server' => 'netease', 'type' => 'song', 'id' => $matches[1]);
+            }
+            if (preg_match('/artist\?id=(\d+)/i', $url, $matches)) {
+                return array('server' => 'netease', 'type' => 'artist', 'id' => $matches[1]);
+            }
+        }
+
+        if (strpos($host, 'y.qq.com') !== false || strpos($host, 'qq.com') !== false) {
+            if (preg_match('/playsquare\/([^\.?&#\/]+)/i', $url, $matches)) {
+                return array('server' => 'tencent', 'type' => 'playlist', 'id' => $matches[1]);
+            }
+            if (preg_match('/playlist\/([^\.?&#\/]+)/i', $url, $matches)) {
+                return array('server' => 'tencent', 'type' => 'playlist', 'id' => $matches[1]);
+            }
+            if (preg_match('/album\/([^\.?&#\/]+)/i', $url, $matches)) {
+                return array('server' => 'tencent', 'type' => 'album', 'id' => $matches[1]);
+            }
+            if (preg_match('/song\/([^\.?&#\/]+)/i', $url, $matches)) {
+                return array('server' => 'tencent', 'type' => 'song', 'id' => $matches[1]);
+            }
+            if (preg_match('/singer\/([^\.?&#\/]+)/i', $url, $matches)) {
+                return array('server' => 'tencent', 'type' => 'artist', 'id' => $matches[1]);
+            }
+        }
+
+        if (strpos($host, 'kugou.com') !== false) {
+            if (preg_match('/special\/single\/(\d+)/i', $url, $matches)) {
+                return array('server' => 'kugou', 'type' => 'playlist', 'id' => $matches[1]);
+            }
+            if (preg_match('/album\/[single\/]*(\d+)/i', $url, $matches)) {
+                return array('server' => 'kugou', 'type' => 'album', 'id' => $matches[1]);
+            }
+            if (preg_match('/singer\/[home\/]*(\d+)/i', $url, $matches)) {
+                return array('server' => 'kugou', 'type' => 'artist', 'id' => $matches[1]);
+            }
+            if (preg_match('/[\?&#]hash=([A-Za-z0-9]+)/i', $url, $matches)) {
+                return array('server' => 'kugou', 'type' => 'song', 'id' => $matches[1]);
+            }
+        }
+
+        return null;
+    }
+
+    private static function generateMusicPlayer(array $musicInfo): string
+    {
+        $server = isset($musicInfo['server']) ? strtolower(trim((string)$musicInfo['server'])) : '';
+        $type = isset($musicInfo['type']) ? strtolower(trim((string)$musicInfo['type'])) : '';
+        $id = isset($musicInfo['id']) ? trim((string)$musicInfo['id']) : '';
+
+        if ($server === '' || $type === '' || $id === '') {
+            return '';
+        }
+
+        if (!preg_match('/^[a-z]+$/', $server)) {
+            return '';
+        }
+
+        if (!preg_match('/^(song|album|artist|playlist)$/', $type)) {
+            return '';
+        }
+
+        if (!preg_match('/^[0-9A-Za-z_\-]+$/', $id)) {
+            return '';
+        }
+
+        return '<meting-js server="' . htmlspecialchars($server, ENT_QUOTES, 'UTF-8')
+            . '" type="' . htmlspecialchars($type, ENT_QUOTES, 'UTF-8')
+            . '" id="' . htmlspecialchars($id, ENT_QUOTES, 'UTF-8')
+            . '" fixed="false" autoplay="false" loop="all" order="list" list-folded="false" list-max-height="340px"></meting-js>';
+    }
+
     private static function extractVideoInfo($url)
     {
         $url = trim(html_entity_decode((string)$url, ENT_QUOTES, 'UTF-8'));
@@ -3561,6 +4033,181 @@ while ($tags->next()) {
         }
     }
 
+    private static function parseEnhancementShortcodes($content, $widget)
+    {
+        if (!is_string($content) || $content === '') {
+            return $content;
+        }
+
+        $isLogin = false;
+        try {
+            $user = Typecho_Widget::widget('Widget_User');
+            $isLogin = $user->hasLogin();
+        } catch (Exception $e) {
+            $isLogin = false;
+        }
+
+        $content = preg_replace_callback(
+            '/\[reply\]([\s\S]*?)\[\/reply\]/i',
+            function ($matches) use ($isLogin) {
+                $innerRaw = isset($matches[1]) ? (string)$matches[1] : '';
+                if ($isLogin) {
+                    return '<div class="enhancement-shortcode enhancement-reply">' . $innerRaw . '</div>';
+                }
+                return '<div class="enhancement-shortcode enhancement-reply enhancement-reply-locked">'
+                    . '<span class="enhancement-reply-lock-text">该内容仅回复后可见</span>'
+                    . '</div>';
+            },
+            $content
+        );
+
+        $content = self::replaceCalloutShortcode($content, 'primary', 'important');
+        $content = self::replaceCalloutShortcode($content, 'success', 'success');
+        $content = self::replaceCalloutShortcode($content, 'info', 'info');
+        $content = self::replaceCalloutShortcode($content, 'danger', 'danger');
+
+        $content = preg_replace_callback(
+            '/\[article\s+id=["\']?(\d+)["\']?\s*\]/i',
+            function ($matches) {
+                $cid = isset($matches[1]) ? intval($matches[1]) : 0;
+                if ($cid <= 0) {
+                    return '';
+                }
+
+                try {
+                    $db = Typecho_Db::get();
+                    $row = $db->fetchRow(
+                        $db->select('cid', 'title', 'slug', 'created', 'type', 'status')
+                            ->from('table.contents')
+                            ->where('cid = ?', $cid)
+                            ->where('type = ?', 'post')
+                            ->limit(1)
+                    );
+
+                    if (!is_array($row) || empty($row)) {
+                        return '';
+                    }
+
+                    $title = isset($row['title']) ? trim((string)$row['title']) : '';
+                    if ($title === '') {
+                        $title = '未命名文章';
+                    }
+
+                    $permalink = '';
+                    $archive = Typecho_Widget::widget('Widget_Archive');
+                    if (method_exists($archive, 'filter')) {
+                        $archive->push($row);
+                        if (isset($archive->permalink)) {
+                            $permalink = (string)$archive->permalink;
+                        }
+                    }
+
+                    if ($permalink === '') {
+                        $options = Typecho_Widget::widget('Widget_Options');
+                        $permalink = Typecho_Common::url('?cid=' . $cid, $options->index);
+                    }
+
+                    return '<a class="enhancement-shortcode enhancement-article-ref" href="'
+                        . htmlspecialchars((string)$permalink, ENT_QUOTES, 'UTF-8')
+                        . '">'
+                        . '📄 ' . htmlspecialchars($title, ENT_QUOTES, 'UTF-8')
+                        . '</a>';
+                } catch (Exception $e) {
+                    return '';
+                }
+            },
+            $content
+        );
+
+        $content = preg_replace_callback(
+            '/\[github\s*=\s*([A-Za-z0-9_.\-]+\/[A-Za-z0-9_.\-]+)\s*\]/i',
+            function ($matches) {
+                $repo = isset($matches[1]) ? trim((string)$matches[1]) : '';
+                if ($repo === '' || strpos($repo, '/') === false) {
+                    return '';
+                }
+
+                $parts = explode('/', $repo, 2);
+                $owner = isset($parts[0]) ? trim((string)$parts[0]) : '';
+                $name = isset($parts[1]) ? trim((string)$parts[1]) : '';
+                if ($owner === '' || $name === '') {
+                    return '';
+                }
+
+                $repoUrl = 'https://github.com/' . rawurlencode($owner) . '/' . rawurlencode($name);
+                $cardUrl = 'https://githubcard.com/' . rawurlencode($owner) . '/' . rawurlencode($name) . '.svg';
+
+                return '<a class="enhancement-shortcode enhancement-github-card-link" href="'
+                    . htmlspecialchars($repoUrl, ENT_QUOTES, 'UTF-8')
+                    . '" target="_blank" rel="noopener noreferrer">'
+                    . '<img class="enhancement-github-card" src="'
+                    . htmlspecialchars($cardUrl, ENT_QUOTES, 'UTF-8')
+                    . '" alt="'
+                    . htmlspecialchars($repo, ENT_QUOTES, 'UTF-8')
+                    . '" loading="lazy" decoding="async" />'
+                    . '</a>';
+            },
+            $content
+        );
+
+        return $content;
+    }
+
+    private static function replaceCalloutShortcode($content, $name, $theme)
+    {
+        $name = strtolower(trim((string)$name));
+        $theme = strtolower(trim((string)$theme));
+        if ($name === '' || $theme === '') {
+            return $content;
+        }
+
+        $pattern = '/\[' . preg_quote($name, '/') . '\]([\s\S]*?)\[\/' . preg_quote($name, '/') . '\]/i';
+        return preg_replace_callback(
+            $pattern,
+            function ($matches) use ($theme) {
+                $inner = isset($matches[1]) ? (string)$matches[1] : '';
+                return '<div class="enhancement-shortcode enhancement-callout enhancement-callout-' . $theme . '">' . $inner . '</div>';
+            },
+            $content
+        );
+    }
+
+    private static function renderEnhancementShortcodeStyles()
+    {
+        static $printed = false;
+        if ($printed) {
+            return;
+        }
+        $printed = true;
+
+        echo '<style>'
+            . '.enhancement-shortcode{display:block;margin:12px 0;border-radius:8px;}'
+            . '.enhancement-callout{padding:10px 12px;border:1px solid transparent;line-height:1.6;}'
+            . '.enhancement-callout-primary,.enhancement-callout-important{background:#eef2ff;border-color:#c7d2fe;color:#1e3a8a;}'
+            . '.enhancement-callout-success{background:#ecfdf5;border-color:#a7f3d0;color:#065f46;}'
+            . '.enhancement-callout-info{background:#eff6ff;border-color:#bfdbfe;color:#1d4ed8;}'
+            . '.enhancement-callout-danger{background:#fef2f2;border-color:#fecaca;color:#b91c1c;}'
+            . '.enhancement-reply{padding:10px 12px;background:#f8fafc;border:1px dashed #cbd5e1;color:#0f172a;}'
+            . '.enhancement-reply-locked{background:#fff7ed;border-color:#fed7aa;color:#9a3412;}'
+            . '.enhancement-reply-lock-text{font-size:13px;}'
+            . '.enhancement-article-ref,.enhancement-github-ref{display:inline-flex;align-items:center;gap:6px;padding:7px 10px;border:1px solid #e5e7eb;border-radius:8px;background:#fff;color:#111827;text-decoration:none;}'
+            . '.enhancement-article-ref:hover,.enhancement-github-ref:hover{border-color:#cbd5e1;background:#f8fafc;text-decoration:none;}'
+            . '.enhancement-github-card-link{display:block;max-width:560px;padding:0;border:0;background:transparent;text-decoration:none;}'
+            . '.enhancement-github-card{display:block;max-width:100%;height:auto;border-radius:10px;border:1px solid #e5e7eb;background:#fff;}'
+            . '@media (prefers-color-scheme: dark){'
+            . '.enhancement-callout-primary,.enhancement-callout-important{background:#1e293b;border-color:#334155;color:#c7d2fe;}'
+            . '.enhancement-callout-success{background:#052e21;border-color:#064e3b;color:#6ee7b7;}'
+            . '.enhancement-callout-info{background:#0c4a6e;border-color:#075985;color:#bae6fd;}'
+            . '.enhancement-callout-danger{background:#450a0a;border-color:#7f1d1d;color:#fca5a5;}'
+            . '.enhancement-reply{background:#0f172a;border-color:#334155;color:#e2e8f0;}'
+            . '.enhancement-reply-locked{background:#3f1d0f;border-color:#7c2d12;color:#fdba74;}'
+            . '.enhancement-article-ref,.enhancement-github-ref{background:#111827;border-color:#374151;color:#e5e7eb;}'
+            . '.enhancement-article-ref:hover,.enhancement-github-ref:hover{background:#1f2937;border-color:#4b5563;}'
+            . '.enhancement-github-card{border-color:#374151;background:#111827;}'
+            . '}'
+            . '</style>';
+    }
+
     public static function parse($text, $widget, $lastResult)
     {
         $text = empty($lastResult) ? $text : $lastResult;
@@ -3572,6 +4219,8 @@ while ($tags->next()) {
         $isCommentWidget = $widget instanceof Widget_Abstract_Comments;
 
         if ($isContentWidget || $isCommentWidget) {
+            self::renderEnhancementShortcodeStyles();
+
             if ($isCommentWidget) {
                 self::upgradeCommentWidgetUrl($widget);
             }
@@ -3586,6 +4235,14 @@ while ($tags->next()) {
 
             if ($isContentWidget && self::videoParserEnabled()) {
                 $text = self::replaceVideoLinks($text);
+            }
+
+            if ($isContentWidget && self::musicParserEnabled()) {
+                $text = self::replaceMusicLinks($text);
+            }
+
+            if ($isContentWidget) {
+                $text = self::parseEnhancementShortcodes($text, $widget);
             }
 
             return $text;
