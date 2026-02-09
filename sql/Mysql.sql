@@ -9,14 +9,15 @@ CREATE TABLE IF NOT EXISTS `typecho_links` (
   `user` varchar(200) DEFAULT NULL COMMENT '自定义',
   `state` int(10) DEFAULT '1' COMMENT 'links状态',
   `order` int(10) UNSIGNED DEFAULT '0' COMMENT 'links排序',
-  PRIMARY KEY  (`lid`)
-) ENGINE=MYISAM  DEFAULT CHARSET=%charset%;
+  PRIMARY KEY (`lid`)
+) ENGINE=MYISAM DEFAULT CHARSET=%charset%;
 
 CREATE TABLE IF NOT EXISTS `typecho_moments` (
   `mid` int(10) UNSIGNED NOT NULL AUTO_INCREMENT COMMENT 'moments表主键',
   `content` text NOT NULL COMMENT '内容',
   `tags` varchar(200) DEFAULT NULL COMMENT '标签',
   `media` text DEFAULT NULL COMMENT '媒体JSON',
+  `source` varchar(20) DEFAULT 'web' COMMENT '来源',
   `created` int(10) UNSIGNED DEFAULT '0' COMMENT '创建时间',
   PRIMARY KEY (`mid`)
-) ENGINE=MYISAM  DEFAULT CHARSET=%charset%;
+) ENGINE=MYISAM DEFAULT CHARSET=%charset%;

@@ -373,18 +373,28 @@ class Enhancement_Action extends Typecho_Widget implements Widget_Interface_Do
 
         $endpoint = rtrim($apiUrl, '/') . '/send_msg';
         $ch = curl_init();
-        curl_setopt_array($ch, array(
+        $curlOptions = array(
             CURLOPT_URL => $endpoint,
             CURLOPT_POST => true,
             CURLOPT_POSTFIELDS => json_encode($payload, JSON_UNESCAPED_UNICODE),
             CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_TIMEOUT => 10,
+            CURLOPT_CONNECTTIMEOUT => 3,
+            CURLOPT_TIMEOUT => 5,
             CURLOPT_HTTPHEADER => array(
                 'Content-Type: application/json; charset=UTF-8',
                 'Accept: application/json'
             ),
             CURLOPT_SSL_VERIFYPEER => false
-        ));
+        );
+
+        if (defined('CURLOPT_IPRESOLVE') && defined('CURL_IPRESOLVE_V4')) {
+            $curlOptions[CURLOPT_IPRESOLVE] = CURL_IPRESOLVE_V4;
+        }
+        if (defined('CURLOPT_NOSIGNAL')) {
+            $curlOptions[CURLOPT_NOSIGNAL] = true;
+        }
+
+        curl_setopt_array($ch, $curlOptions);
 
         $response = curl_exec($ch);
         $httpCode = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
@@ -980,6 +990,7 @@ class Enhancement_Action extends Typecho_Widget implements Widget_Interface_Do
         $moment = array();
         $moment['content'] = (string)$this->request->get('content');
         $moment['tags'] = $this->request->filter('xss')->tags;
+        $moment['source'] = Enhancement_Plugin::detectMomentSourceByUserAgent($this->request->getServer('HTTP_USER_AGENT'));
         $moment['created'] = $this->options->time;
         $mediaRaw = $this->request->get('media');
         $mediaRaw = is_string($mediaRaw) ? trim($mediaRaw) : $mediaRaw;

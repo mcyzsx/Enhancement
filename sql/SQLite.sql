@@ -16,5 +16,6 @@ CREATE TABLE IF NOT EXISTS `typecho_moments` (
   `content` text NOT NULL,
   `tags` text DEFAULT NULL,
   `media` text DEFAULT NULL,
+  `source` varchar(20) DEFAULT 'web',
   `created` integer DEFAULT 0
 );

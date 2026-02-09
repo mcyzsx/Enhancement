@@ -5,7 +5,7 @@
  * 具体功能包含:友情链接,瞬间,网站地图,编辑器增强,常见视频链接 音乐链接 解析等
  * @package Enhancement
  * @author jkjoy
- * @version 1.1.1
+ * @version 1.1.2
  * @link HTTPS://IMSUN.ORG
  * @dependence 14.10.10-*
  */
@@ -1221,6 +1221,91 @@ class Enhancement_Plugin implements Typecho_Plugin_Interface
         return $media;
     }
 
+    public static function normalizeMomentSource($source, $default = 'web')
+    {
+        $allowed = array('web', 'mobile', 'api');
+        $source = strtolower(trim((string)$source));
+        if (!in_array($source, $allowed, true)) {
+            $source = strtolower(trim((string)$default));
+            if (!in_array($source, $allowed, true)) {
+                $source = 'web';
+            }
+        }
+
+        return $source;
+    }
+
+    public static function detectMomentSourceByUserAgent($userAgent = null)
+    {
+        if ($userAgent === null) {
+            $userAgent = isset($_SERVER['HTTP_USER_AGENT']) ? (string)$_SERVER['HTTP_USER_AGENT'] : '';
+        }
+
+        $userAgent = strtolower(trim((string)$userAgent));
+        if ($userAgent === '') {
+            return 'web';
+        }
+
+        if (preg_match('/mobile|android|iphone|ipad|ipod|windows phone|mobi/i', $userAgent)) {
+            return 'mobile';
+        }
+
+        return 'web';
+    }
+
+    public static function ensureMomentsSourceColumn()
+    {
+        $db = Typecho_Db::get();
+        $type = explode('_', $db->getAdapterName());
+        $type = array_pop($type);
+        $prefix = $db->getPrefix();
+        $table = $prefix . 'moments';
+
+        try {
+            if ('Mysql' === $type) {
+                $row = $db->fetchRow('SHOW COLUMNS FROM `' . $table . '` LIKE \'source\'');
+                if (!is_array($row) || empty($row)) {
+                    $db->query('ALTER TABLE `' . $table . '` ADD COLUMN `source` varchar(20) DEFAULT \'web\' AFTER `media`', Typecho_Db::WRITE);
+                }
+                return;
+            }
+
+            if ('Pgsql' === $type) {
+                $row = $db->fetchRow(
+                    $db->select('column_name')
+                        ->from('information_schema.columns')
+                        ->where('table_name = ?', $table)
+                        ->where('column_name = ?', 'source')
+                        ->limit(1)
+                );
+                if (!is_array($row) || empty($row)) {
+                    $db->query('ALTER TABLE "' . $table . '" ADD COLUMN "source" varchar(20) DEFAULT \'web\'', Typecho_Db::WRITE);
+                }
+                return;
+            }
+
+            if ('SQLite' === $type) {
+                $rows = $db->fetchAll('PRAGMA table_info(`' . $table . '`)');
+                $hasSource = false;
+                if (is_array($rows)) {
+                    foreach ($rows as $row) {
+                        $name = isset($row['name']) ? strtolower((string)$row['name']) : '';
+                        if ($name === 'source') {
+                            $hasSource = true;
+                            break;
+                        }
+                    }
+                }
+                if (!$hasSource) {
+                    $db->query('ALTER TABLE `' . $table . '` ADD COLUMN `source` varchar(20) DEFAULT \'web\'', Typecho_Db::WRITE);
+                }
+                return;
+            }
+        } catch (Exception $e) {
+            // ignore migration errors to avoid blocking runtime
+        }
+    }
+
     public static function ensureMomentsTable()
     {
         $db = Typecho_Db::get();
@@ -1246,6 +1331,8 @@ class Enhancement_Plugin implements Typecho_Plugin_Interface
                 }
             }
         }
+
+        self::ensureMomentsSourceColumn();
     }
 
     public static function turnstileEnabled(): bool
@@ -1613,18 +1700,28 @@ class Enhancement_Plugin implements Typecho_Plugin_Interface
         }
 
         $ch = curl_init();
-        curl_setopt_array($ch, array(
+        $curlOptions = array(
             CURLOPT_URL => rtrim($apiUrl, '/') . '/send_msg',
             CURLOPT_POST => true,
             CURLOPT_POSTFIELDS => json_encode($payload, JSON_UNESCAPED_UNICODE),
             CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_TIMEOUT => 10,
+            CURLOPT_CONNECTTIMEOUT => 3,
+            CURLOPT_TIMEOUT => 5,
             CURLOPT_HTTPHEADER => array(
                 'Content-Type: application/json; charset=UTF-8',
                 'Accept: application/json'
             ),
             CURLOPT_SSL_VERIFYPEER => false
-        ));
+        );
+
+        if (defined('CURLOPT_IPRESOLVE') && defined('CURL_IPRESOLVE_V4')) {
+            $curlOptions[CURLOPT_IPRESOLVE] = CURL_IPRESOLVE_V4;
+        }
+        if (defined('CURLOPT_NOSIGNAL')) {
+            $curlOptions[CURLOPT_NOSIGNAL] = true;
+        }
+
+        curl_setopt_array($ch, $curlOptions);
 
         $response = curl_exec($ch);
         $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
@@ -1674,6 +1771,8 @@ class Enhancement_Plugin implements Typecho_Plugin_Interface
 
     public static function commentNotifierMark($comment, $edit, $status)
     {
+        self::commentByQQMark($comment, $edit, $status);
+
         $options = Typecho_Widget::widget('Widget_Options');
         $plugin = self::pluginSettings($options);
         if (isset($plugin->enable_comment_notifier) && $plugin->enable_comment_notifier != '1') {
