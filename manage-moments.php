@@ -18,26 +18,25 @@ include 'header.php';
 include 'menu.php';
 ?>
 
-
 <div class="main">
     <div class="body container">
         <?php include 'page-title.php'; ?>
         <div class="row typecho-page-main manage-metas">
-                <div class="col-mb-12">
-                    <ul class="typecho-option-tabs clearfix">
-                        <li><a href="<?php $options->adminUrl('extending.php?panel=Enhancement/manage-enhancement.php'); ?>"><?php _e('链接'); ?></a></li>
-                        <li class="current"><a href="<?php $options->adminUrl('extending.php?panel=Enhancement/manage-moments.php'); ?>"><?php _e('瞬间'); ?></a></li>
-                        <li><a href="<?php $options->adminUrl('options-plugin.php?config=Enhancement'); ?>"><?php _e('设置'); ?></a></li>
-                    </ul>
-                </div>
+            <div class="col-mb-12">
+                <ul class="typecho-option-tabs clearfix">
+                    <li><a href="<?php $options->adminUrl('extending.php?panel=Enhancement/manage-enhancement.php'); ?>"><?php _e('链接'); ?></a></li>
+                    <li class="current"><a href="<?php $options->adminUrl('extending.php?panel=Enhancement/manage-moments.php'); ?>"><?php _e('瞬间'); ?></a></li>
+                    <li><a href="<?php $options->adminUrl('options-plugin.php?config=Enhancement'); ?>"><?php _e('设置'); ?></a></li>
+                </ul>
+            </div>
 
-                <div class="col-mb-12 col-tb-8" role="main">
-                    <?php
-                        $db = Typecho_Db::get();
-                        $prefix = $db->getPrefix();
-                        $moments = $db->fetchAll($db->select()->from($prefix.'moments')->order($prefix.'moments.mid', Typecho_Db::SORT_DESC));
-                    ?>
-                    <form method="post" name="manage_moments" class="operate-form">
+            <div class="col-mb-12 col-tb-8" role="main">
+                <?php
+                    Enhancement_Plugin::ensureMomentsTable();
+                    $prefix = $db->getPrefix();
+                    $moments = $db->fetchAll($db->select()->from($prefix . 'moments')->order($prefix . 'moments.mid', Typecho_Db::SORT_DESC));
+                ?>
+                <form method="post" name="manage_moments" class="operate-form">
                     <div class="typecho-list-operate clearfix">
                         <div class="operate">
                             <label><i class="sr-only"><?php _e('全选'); ?></i><input type="checkbox" class="typecho-table-select-all" /></label>
@@ -55,61 +54,74 @@ include 'menu.php';
                             <colgroup>
                                 <col width="15"/>
                                 <col width=""/>
-                                <col width="20%"/>
-                                <col width="20%"/>
+                                <col width="16%"/>
+                                <col width="12%"/>
+                                <col width="16%"/>
                             </colgroup>
                             <thead>
                                 <tr>
                                     <th> </th>
                                     <th><?php _e('内容'); ?></th>
                                     <th><?php _e('标签'); ?></th>
+                                    <th><?php _e('来源'); ?></th>
                                     <th><?php _e('时间'); ?></th>
                                 </tr>
                             </thead>
                             <tbody>
                                 <?php if (!empty($moments)): ?>
-                                <?php foreach ($moments as $moment): ?>
-                                <tr id="moment-<?php echo $moment['mid']; ?>">
-                                    <td><input type="checkbox" value="<?php echo $moment['mid']; ?>" name="mid[]"/></td>
-                                    <td>
-                                        <a href="<?php echo $request->makeUriByRequest('mid=' . $moment['mid']); ?>" title="<?php _e('点击编辑'); ?>">
-                                            <?php
-                                                $plain = strip_tags($moment['content']);
-                                                echo Typecho_Common::subStr($plain, 0, 60, '...');
-                                            ?>
-                                        </a>
-                                    </td>
-                                    <td><?php
-                                        $tags = isset($moment['tags']) ? trim($moment['tags']) : '';
-                                        if ($tags !== '') {
-                                            $decoded = json_decode($tags, true);
-                                            if (is_array($decoded)) {
-                                                $tags = implode(' , ', $decoded);
+                                    <?php foreach ($moments as $moment): ?>
+                                    <tr id="moment-<?php echo $moment['mid']; ?>">
+                                        <td><input type="checkbox" value="<?php echo $moment['mid']; ?>" name="mid[]"/></td>
+                                        <td>
+                                            <a href="<?php echo $request->makeUriByRequest('mid=' . $moment['mid']); ?>" title="<?php _e('点击编辑'); ?>">
+                                                <?php
+                                                    $plain = strip_tags($moment['content']);
+                                                    echo Typecho_Common::subStr($plain, 0, 60, '...');
+                                                ?>
+                                            </a>
+                                        </td>
+                                        <td><?php
+                                            $tags = isset($moment['tags']) ? trim($moment['tags']) : '';
+                                            if ($tags !== '') {
+                                                $decoded = json_decode($tags, true);
+                                                if (is_array($decoded)) {
+                                                    $tags = implode(' , ', $decoded);
+                                                }
                                             }
-                                        }
-                                        echo $tags;
-                                    ?></td>
-                                    <td><?php
-                                        $created = isset($moment['created']) ? $moment['created'] : 0;
-                                        if (is_numeric($created) && intval($created) > 0) {
-                                            echo date('Y-m-d H:i', intval($created));
-                                        }
-                                    ?></td>
-                                </tr>
-                                <?php endforeach; ?>
+                                            echo $tags;
+                                        ?></td>
+                                        <td><?php
+                                            $sourceRaw = isset($moment['source']) ? trim((string)$moment['source']) : '';
+                                            $source = Enhancement_Plugin::normalizeMomentSource($sourceRaw, 'web');
+                                            if ($source === 'mobile') {
+                                                echo _t('手机端');
+                                            } else if ($source === 'api') {
+                                                echo 'API';
+                                            } else {
+                                                echo _t('Web端');
+                                            }
+                                        ?></td>
+                                        <td><?php
+                                            $created = isset($moment['created']) ? $moment['created'] : 0;
+                                            if (is_numeric($created) && intval($created) > 0) {
+                                                echo date('Y-m-d H:i', intval($created));
+                                            }
+                                        ?></td>
+                                    </tr>
+                                    <?php endforeach; ?>
                                 <?php else: ?>
-                                <tr>
-                                    <td colspan="4"><h6 class="typecho-list-table-title"><?php _e('没有任何瞬间'); ?></h6></td>
-                                </tr>
+                                    <tr>
+                                        <td colspan="5"><h6 class="typecho-list-table-title"><?php _e('没有任何瞬间'); ?></h6></td>
+                                    </tr>
                                 <?php endif; ?>
                             </tbody>
                         </table>
                     </div>
-                    </form>
-                </div>
-                <div class="col-mb-12 col-tb-4" role="form">
-                    <?php Enhancement_Plugin::momentsForm()->render(); ?>
-                </div>
+                </form>
+            </div>
+            <div class="col-mb-12 col-tb-4" role="form">
+                <?php Enhancement_Plugin::momentsForm()->render(); ?>
+            </div>
         </div>
     </div>
 </div>

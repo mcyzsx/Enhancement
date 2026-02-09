@@ -16,5 +16,16 @@ CREATE TABLE IF NOT EXISTS `typecho_moments` (
   `content` text NOT NULL,
   `tags` text DEFAULT NULL,
   `media` text DEFAULT NULL,
+  `source` varchar(20) DEFAULT 'web',
   `created` integer DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS `typecho_qq_notify_queue` (
+  `qid` INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+  `message` text NOT NULL,
+  `status` int(10) DEFAULT 0,
+  `retries` int(10) DEFAULT 0,
+  `last_error` varchar(255) DEFAULT NULL,
+  `created` integer DEFAULT 0,
+  `updated` integer DEFAULT 0
 );

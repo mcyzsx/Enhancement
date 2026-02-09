@@ -40,6 +40,8 @@ class Enhancement_Memos_Action extends Typecho_Widget implements Widget_Interfac
 
     private function listing()
     {
+        Enhancement_Plugin::ensureMomentsTable();
+
         $limit = intval($this->request->get('limit', 20));
         if ($limit <= 0) {
             $limit = 20;
@@ -113,7 +115,8 @@ class Enhancement_Memos_Action extends Typecho_Widget implements Widget_Interfac
                 'content' => (string)$row['content'],
                 'time' => $timeString,
                 'tags' => $tags,
-                'media' => $media
+                'media' => $media,
+                'source' => Enhancement_Plugin::normalizeMomentSource(isset($row['source']) ? $row['source'] : '', 'web')
             );
         }
 
@@ -122,6 +125,8 @@ class Enhancement_Memos_Action extends Typecho_Widget implements Widget_Interfac
 
     private function createMoment()
     {
+        Enhancement_Plugin::ensureMomentsTable();
+
         try {
             $settings = $this->options->plugin('Enhancement');
         } catch (Exception $e) {
@@ -164,17 +169,20 @@ class Enhancement_Memos_Action extends Typecho_Widget implements Widget_Interfac
         $tagsValue = null;
         $mediaValue = null;
         $createdValue = null;
+        $sourceValue = null;
 
         if (is_array($payload)) {
             $content = $payload['content'] ?? '';
             $tagsValue = $payload['tags'] ?? null;
             $mediaValue = $payload['media'] ?? null;
             $createdValue = $payload['created'] ?? null;
+            $sourceValue = $payload['source'] ?? null;
         } else {
             $content = $this->request->get('content');
             $tagsValue = $this->request->get('tags');
             $mediaValue = $this->request->get('media');
             $createdValue = $this->request->get('created');
+            $sourceValue = $this->request->get('source');
         }
 
         $content = trim((string)$content);
@@ -236,10 +244,14 @@ class Enhancement_Memos_Action extends Typecho_Widget implements Widget_Interfac
             }
         }
 
+        $sourceDefault = 'api';
+        $source = Enhancement_Plugin::normalizeMomentSource($sourceValue, $sourceDefault);
+
         $moment = array(
             'content' => $content,
             'tags' => $tags,
             'media' => $media,
+            'source' => $source,
             'created' => $created
         );
 

@@ -2,10 +2,10 @@
 
 /**
  * Enhancement 插件
- * 具体功能包含:友情链接,瞬间,网站地图,编辑器增强,常见视频链接 音乐链接 解析等
+ * 具体功能包含:插件/主题zip上传,友情链接,瞬间,网站地图,编辑器增强,站外链接跳转,评论邮件通知,QQ通知,常见视频链接 音乐链接 解析等
  * @package Enhancement
  * @author jkjoy
- * @version 1.1.1
+ * @version 1.1.4
  * @link HTTPS://IMSUN.ORG
  * @dependence 14.10.10-*
  */
@@ -75,10 +75,11 @@ class Enhancement_Plugin implements Typecho_Plugin_Interface
     public static function activate()
     {
         $info = Enhancement_Plugin::enhancementInstall();
-        Helper::addPanel(3, 'Enhancement/manage-enhancement.php', _t('链接管理'), _t('审核管理'), 'administrator');
+        Helper::addPanel(3, 'Enhancement/manage-enhancement.php', _t('链接'), _t('链接审核与管理'), 'administrator');
         Helper::addPanel(3, 'Enhancement/manage-moments.php', _t('瞬间'), _t('瞬间管理'), 'administrator');
         Helper::addPanel(3, 'Enhancement/manage-equipment.php', _t('装备'), _t('装备管理'), 'administrator');
-        Helper::addPanel(1, self::$commentNotifierPanel, _t('评论邮件提醒外观'), _t('评论邮件提醒主题列表'), 'administrator');
+        Helper::addPanel(1, 'Enhancement/manage-upload.php', _t('上传'), _t('上传管理'), 'administrator');
+        Helper::addPanel(1, self::$commentNotifierPanel, _t('邮件提醒外观'), _t('评论邮件提醒主题列表'), 'administrator');
         Helper::addRoute('sitemap', '/sitemap.xml', 'Enhancement_Sitemap_Action', 'action');
         Helper::addRoute('memos_api', '/api/v1/memos', 'Enhancement_Memos_Action', 'action');
         Helper::addRoute('zemail', '/zemail', 'Enhancement_CommentNotifier_Action', 'action');
@@ -120,6 +121,9 @@ class Enhancement_Plugin implements Typecho_Plugin_Interface
         $legacyDeleteTables = isset($settings->delete_tables_on_deactivate) && $settings->delete_tables_on_deactivate == '1';
         $deleteLinksTable = isset($settings->delete_links_table_on_deactivate) && $settings->delete_links_table_on_deactivate == '1';
         $deleteMomentsTable = isset($settings->delete_moments_table_on_deactivate) && $settings->delete_moments_table_on_deactivate == '1';
+        $deleteQqQueueTable = isset($settings->delete_qq_queue_table_on_deactivate)
+            ? ($settings->delete_qq_queue_table_on_deactivate == '1')
+            : $deleteMomentsTable;
 
         if ($legacyDeleteTables) {
             if (!isset($settings->delete_links_table_on_deactivate)) {
@@ -127,6 +131,9 @@ class Enhancement_Plugin implements Typecho_Plugin_Interface
             }
             if (!isset($settings->delete_moments_table_on_deactivate)) {
                 $deleteMomentsTable = true;
+            }
+            if (!isset($settings->delete_qq_queue_table_on_deactivate)) {
+                $deleteQqQueueTable = true;
             }
         }
 
@@ -138,11 +145,12 @@ class Enhancement_Plugin implements Typecho_Plugin_Interface
         Helper::removeAction('enhancement-submit');
         Helper::removeAction('enhancement-moments-edit');
         Helper::removePanel(3, 'Enhancement/manage-enhancement.php');
-        Helper::removePanel(3, 'Enhancement/manage-moments.php');
+        Helper::removePanel(3, 'Enhancement/manage-moments.php');D
         Helper::removePanel(3, 'Enhancement/manage-equipment.php');
+        Helper::removePanel(3, 'Enhancement/manage-upload.php');
         Helper::removePanel(1, self::$commentNotifierPanel);
 
-        if ($deleteLinksTable || $deleteMomentsTable) {
+        if ($deleteLinksTable || $deleteMomentsTable || $deleteQqQueueTable) {
             $db = Typecho_Db::get();
             $prefix = $db->getPrefix();
             $type = explode('_', $db->getAdapterName());
@@ -156,12 +164,18 @@ class Enhancement_Plugin implements Typecho_Plugin_Interface
                     if ($deleteMomentsTable) {
                         $db->query('DROP TABLE IF EXISTS "' . $prefix . 'moments"');
                     }
+                    if ($deleteQqQueueTable) {
+                        $db->query('DROP TABLE IF EXISTS "' . $prefix . 'qq_notify_queue"');
+                    }
                 } else {
                     if ($deleteLinksTable) {
                         $db->query('DROP TABLE IF EXISTS `' . $prefix . 'links`');
                     }
                     if ($deleteMomentsTable) {
                         $db->query('DROP TABLE IF EXISTS `' . $prefix . 'moments`');
+                    }
+                    if ($deleteQqQueueTable) {
+                        $db->query('DROP TABLE IF EXISTS `' . $prefix . 'qq_notify_queue`');
                     }
                 }
             } catch (Exception $e) {
@@ -264,9 +278,48 @@ class Enhancement_Plugin implements Typecho_Plugin_Interface
     .enhancement-backup-inline-btn.danger:hover{
         background: #fff1f1;
     }
+    .enhancement-action-row{
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 10px;
+        margin-top: 6px;
+    }
+    .enhancement-action-btn{
+        display: inline-flex !important;
+        align-items: center;
+        justify-content: center;
+        height: 32px;
+        line-height: 32px;
+        padding: 0 14px;
+        box-sizing: border-box;
+        text-decoration: none !important;
+        vertical-align: middle;
+    }
+    .enhancement-action-btn:hover,
+    .enhancement-action-btn:focus{
+        text-decoration: none !important;
+    }
+    .enhancement-action-note{
+        color: #666;
+        line-height: 1.6;
+    }
+    .enhancement-option-no-bullet,
+    .enhancement-option-no-bullet li{
+        list-style: none !important;
+        margin: 0;
+        padding: 0;
+    }
+    .enhancement-option-no-bullet .description{
+        margin: 0;
+    }
+    .enhancement-option-no-bullet .description:before{
+        content: none !important;
+        display: none !important;
+    }
 </style>';
         echo '<div class="typecho-option" style="margin-top:12px;">
-            <button type="button" class="btn" id="enhancement-links-help-toggle">帮助</button>
+            <button type="button" class="btn enhancement-action-btn" id="enhancement-links-help-toggle" style="display:none;">帮助</button>
             <div id="enhancement-links-help" style="display:none; margin-top:10px;">
                 <p>【管理】→【友情链接】进入审核页面。</p>
                 <p>友链支持后台审核与前台提交。</p>
@@ -340,6 +393,16 @@ class Enhancement_Plugin implements Typecho_Plugin_Interface
             btn.addEventListener("click", function () {
                 panel.style.display = panel.style.display === "none" ? "block" : "none";
             });
+
+            var inlineBtn = document.getElementById("enhancement-links-help-trigger-inline");
+            if (inlineBtn) {
+                inlineBtn.addEventListener("click", function () {
+                    btn.click();
+                    if (btn.scrollIntoView) {
+                        btn.scrollIntoView({behavior: "smooth", block: "center"});
+                    }
+                });
+            }
         })();
         </script>';
         $pattern_text = new Typecho_Widget_Helper_Form_Element_Textarea(
@@ -494,24 +557,6 @@ class Enhancement_Plugin implements Typecho_Plugin_Interface
         $turnstileSecretKey->input->setAttribute('autocomplete', 'off');
         $form->addInput($turnstileSecretKey->addRule('maxLength', _t('Secret Key 最多200个字符'), 200));
 
-        $enableCommentByQQ = new Typecho_Widget_Helper_Form_Element_Radio(
-            'enable_comment_by_qq',
-            array('1' => _t('启用'), '0' => _t('禁用')),
-            '0',
-            _t('QQ评论通知'),
-            _t('评论通过时通过 QQ 机器人推送通知')
-        );
-        $form->addInput($enableCommentByQQ);
-
-        $enableCommentNotifier = new Typecho_Widget_Helper_Form_Element_Radio(
-            'enable_comment_notifier',
-            array('1' => _t('启用'), '0' => _t('禁用')),
-            '0',
-            _t('评论邮件提醒'),
-            _t('评论通过/回复时发送邮件提醒')
-        );
-        $form->addInput($enableCommentNotifier);
-
         $enableAvatarMirror = new Typecho_Widget_Helper_Form_Element_Radio(
             'enable_avatar_mirror',
             array('1' => _t('启用'), '0' => _t('禁用')),
@@ -530,6 +575,15 @@ class Enhancement_Plugin implements Typecho_Plugin_Interface
         );
         $form->addInput($avatarMirrorUrl->addRule('maxLength', _t('地址最多200个字符'), 200));
 
+        $enableCommentByQQ = new Typecho_Widget_Helper_Form_Element_Radio(
+            'enable_comment_by_qq',
+            array('1' => _t('启用'), '0' => _t('禁用')),
+            '0',
+            _t('<h3 class="enhancement-title">QQ 通知设置</h3>QQ评论通知'),
+            _t('评论通过时通过 QQ 机器人推送通知')
+        );
+        $form->addInput($enableCommentByQQ);
+
         $defaultQqApi = defined('__TYPECHO_COMMENT_BY_QQ_API_URL__')
             ? __TYPECHO_COMMENT_BY_QQ_API_URL__
             : 'https://bot.asbid.cn';
@@ -537,7 +591,7 @@ class Enhancement_Plugin implements Typecho_Plugin_Interface
             'qq',
             null,
             '',
-            _t('<h3 class="enhancement-title">QQ 通知设置</h3>接收通知的QQ号'),
+            _t('接收通知的QQ号'),
             _t('需要接收通知的QQ号码')
         );
         $form->addInput($qq);
@@ -547,23 +601,71 @@ class Enhancement_Plugin implements Typecho_Plugin_Interface
             null,
             $defaultQqApi,
             _t('机器人API地址'),
-            _t('默认：') . $defaultQqApi
+            _t('<p>使用默认API需添加QQ机器人 153985848 为好友</p>默认API：') . $defaultQqApi
         );
         $form->addInput($qqboturl);
 
+        $qqAsyncQueue = new Typecho_Widget_Helper_Form_Element_Radio(
+            'qq_async_queue',
+            array('1' => _t('启用（推荐）'), '0' => _t('禁用')),
+            '1',
+            _t('QQ异步队列发送'),
+            _t('启用后先写入数据库队列，再由后续页面请求自动异步投递，避免评论提交因网络超时变慢')
+        );
+        $form->addInput($qqAsyncQueue);
+
         $qqTestNotifyUrl = Helper::security()->getIndex('/action/enhancement-edit?do=qq-test-notify');
-        echo '<div class="typecho-option">'
-            . '<p style="margin:6px 0 0;">'
-            . '<a class="btn" href="' . htmlspecialchars($qqTestNotifyUrl, ENT_QUOTES, 'UTF-8') . '">' . _t('发送QQ通知测试') . '</a>'
-            . '<span style="margin-left:10px;color:#666;">' . _t('保存好 QQ 号与机器人 API 后，点此测试是否可收到消息') . '</span>'
-            . '</p>'
-            . '</div>';
+        $qqActionRow = new Typecho_Widget_Helper_Form_Element_Fake('qq_action_row', null);
+        $qqActionRow->setAttribute('class', 'typecho-option enhancement-option-no-bullet');
+        $qqActionRow->input->setAttribute('type', 'hidden');
+        $qqActionRow->description(
+            '<div class="enhancement-action-row">'
+            . '<a class="btn enhancement-action-btn" href="' . htmlspecialchars($qqTestNotifyUrl, ENT_QUOTES, 'UTF-8') . '">' . _t('发送QQ通知测试') . '</a>'
+            . '<span class="enhancement-action-note">' . _t('先保存好 QQ 号与机器人 API 设置后,再点击测试') . '</span>'
+            . '</div>'
+        );
+        if (isset($qqActionRow->container)) {
+            $qqActionRow->container->setAttribute('style', 'list-style:none;margin:0;padding:0;');
+        }
+        $form->addInput($qqActionRow);
+
+        $qqQueueStats = self::getQqNotifyQueueStats();
+        $qqQueueRetryUrl = Helper::security()->getIndex('/action/enhancement-edit?do=qq-queue-retry');
+        $qqQueueClearUrl = Helper::security()->getIndex('/action/enhancement-edit?do=qq-queue-clear');
+        $qqQueueRow = new Typecho_Widget_Helper_Form_Element_Fake('qq_queue_row', null);
+        $qqQueueRow->setAttribute('class', 'typecho-option enhancement-option-no-bullet');
+        $qqQueueRow->input->setAttribute('type', 'hidden');
+        $qqQueueRow->description(
+            '<div class="enhancement-action-row">'
+            . '<a class="btn enhancement-action-btn" href="' . htmlspecialchars($qqQueueRetryUrl, ENT_QUOTES, 'UTF-8') . '">' . _t('重试失败队列') . '</a>'
+            . '<a class="btn enhancement-action-btn" href="' . htmlspecialchars($qqQueueClearUrl, ENT_QUOTES, 'UTF-8') . '" onclick="return window.confirm(\'确定要清空QQ通知队列吗？\');">' . _t('清空QQ队列') . '</a>'
+            . '<span class="enhancement-action-note">' . _t('队列状态：待发送 %d / 失败 %d / 已发送 %d / 总计 %d',
+                intval($qqQueueStats['pending']),
+                intval($qqQueueStats['failed']),
+                intval($qqQueueStats['success']),
+                intval($qqQueueStats['total'])
+            ) . '</span>'
+            . '</div>'
+        );
+        if (isset($qqQueueRow->container)) {
+            $qqQueueRow->container->setAttribute('style', 'list-style:none;margin:0;padding:0;');
+        }
+        $form->addInput($qqQueueRow);
+
+        $enableCommentNotifier = new Typecho_Widget_Helper_Form_Element_Radio(
+            'enable_comment_notifier',
+            array('1' => _t('启用'), '0' => _t('禁用')),
+            '0',
+            _t('<h3 class="enhancement-title">邮件提醒设置（SMTP）</h3>评论邮件提醒'),
+            _t('评论通过/回复时发送邮件提醒')
+        );
+        $form->addInput($enableCommentNotifier);
 
         $fromName = new Typecho_Widget_Helper_Form_Element_Text(
             'fromName',
             null,
             null,
-            _t('<h3 class="enhancement-title">邮件提醒设置（SMTP）</h3>发件人昵称'),
+            _t('发件人昵称'),
             _t('邮件显示的发件人昵称')
         );
         $form->addInput($fromName);
@@ -677,6 +779,9 @@ class Enhancement_Plugin implements Typecho_Plugin_Interface
         $legacyDeleteTables = isset($settings->delete_tables_on_deactivate) && $settings->delete_tables_on_deactivate == '1';
         $deleteLinksDefault = $legacyDeleteTables ? '1' : '0';
         $deleteMomentsDefault = $legacyDeleteTables ? '1' : '0';
+        $deleteQqQueueDefault = isset($settings->delete_qq_queue_table_on_deactivate)
+            ? ($settings->delete_qq_queue_table_on_deactivate == '1' ? '1' : '0')
+            : $deleteMomentsDefault;
 
         $deleteLinksTable = new Typecho_Widget_Helper_Form_Element_Radio(
             'delete_links_table_on_deactivate',
@@ -696,13 +801,22 @@ class Enhancement_Plugin implements Typecho_Plugin_Interface
         );
         $form->addInput($deleteMomentsTable);
 
+        $deleteQqQueueTable = new Typecho_Widget_Helper_Form_Element_Radio(
+            'delete_qq_queue_table_on_deactivate',
+            array('0' => _t('否（不删除）'), '1' => _t('是（删除）')),
+            $deleteQqQueueDefault,
+            _t('禁用插件时删除QQ通知队列表（qq_notify_queue）'),
+            _t('谨慎开启，会删除QQ通知历史与失败重试记录')
+        );
+        $form->addInput($deleteQqQueueTable);
+
         $backupUrl = Helper::security()->getIndex('/action/enhancement-edit?do=backup-settings');
         echo '<div class="typecho-option">'
             . '<h3 class="enhancement-title">设置备份</h3>'
             . '<div class="enhancement-backup-box">'
-            . '<p style="margin:0;">备份将直接保存到数据库。恢复请在下方列表中指定具体备份。</p>'
+            . '<p style="margin:0;">备份本插件的设置内容,将直接保存到数据库。方便下次启用插件时快速恢复设置。</p>'
             . '<div class="enhancement-backup-actions">'
-            . '<a class="btn" href="' . htmlspecialchars($backupUrl, ENT_QUOTES, 'UTF-8') . '">' . _t('备份插件设置') . '</a>'
+            . '<a class="btn enhancement-action-btn" href="' . htmlspecialchars($backupUrl, ENT_QUOTES, 'UTF-8') . '">' . _t('备份插件设置') . '</a>'
             . '</div>'
             . '</div>'
             . '</div>';
@@ -1169,6 +1283,91 @@ class Enhancement_Plugin implements Typecho_Plugin_Interface
         return $media;
     }
 
+    public static function normalizeMomentSource($source, $default = 'web')
+    {
+        $allowed = array('web', 'mobile', 'api');
+        $source = strtolower(trim((string)$source));
+        if (!in_array($source, $allowed, true)) {
+            $source = strtolower(trim((string)$default));
+            if (!in_array($source, $allowed, true)) {
+                $source = 'web';
+            }
+        }
+
+        return $source;
+    }
+
+    public static function detectMomentSourceByUserAgent($userAgent = null)
+    {
+        if ($userAgent === null) {
+            $userAgent = isset($_SERVER['HTTP_USER_AGENT']) ? (string)$_SERVER['HTTP_USER_AGENT'] : '';
+        }
+
+        $userAgent = strtolower(trim((string)$userAgent));
+        if ($userAgent === '') {
+            return 'web';
+        }
+
+        if (preg_match('/mobile|android|iphone|ipad|ipod|windows phone|mobi/i', $userAgent)) {
+            return 'mobile';
+        }
+
+        return 'web';
+    }
+
+    public static function ensureMomentsSourceColumn()
+    {
+        $db = Typecho_Db::get();
+        $type = explode('_', $db->getAdapterName());
+        $type = array_pop($type);
+        $prefix = $db->getPrefix();
+        $table = $prefix . 'moments';
+
+        try {
+            if ('Mysql' === $type) {
+                $row = $db->fetchRow('SHOW COLUMNS FROM `' . $table . '` LIKE \'source\'');
+                if (!is_array($row) || empty($row)) {
+                    $db->query('ALTER TABLE `' . $table . '` ADD COLUMN `source` varchar(20) DEFAULT \'web\' AFTER `media`', Typecho_Db::WRITE);
+                }
+                return;
+            }
+
+            if ('Pgsql' === $type) {
+                $row = $db->fetchRow(
+                    $db->select('column_name')
+                        ->from('information_schema.columns')
+                        ->where('table_name = ?', $table)
+                        ->where('column_name = ?', 'source')
+                        ->limit(1)
+                );
+                if (!is_array($row) || empty($row)) {
+                    $db->query('ALTER TABLE "' . $table . '" ADD COLUMN "source" varchar(20) DEFAULT \'web\'', Typecho_Db::WRITE);
+                }
+                return;
+            }
+
+            if ('SQLite' === $type) {
+                $rows = $db->fetchAll('PRAGMA table_info(`' . $table . '`)');
+                $hasSource = false;
+                if (is_array($rows)) {
+                    foreach ($rows as $row) {
+                        $name = isset($row['name']) ? strtolower((string)$row['name']) : '';
+                        if ($name === 'source') {
+                            $hasSource = true;
+                            break;
+                        }
+                    }
+                }
+                if (!$hasSource) {
+                    $db->query('ALTER TABLE `' . $table . '` ADD COLUMN `source` varchar(20) DEFAULT \'web\'', Typecho_Db::WRITE);
+                }
+                return;
+            }
+        } catch (Exception $e) {
+            // ignore migration errors to avoid blocking runtime
+        }
+    }
+
     public static function ensureMomentsTable()
     {
         $db = Typecho_Db::get();
@@ -1194,6 +1393,8 @@ class Enhancement_Plugin implements Typecho_Plugin_Interface
                 }
             }
         }
+
+        self::ensureMomentsSourceColumn();
     }
 
     public static function turnstileEnabled(): bool
@@ -1551,6 +1752,11 @@ class Enhancement_Plugin implements Typecho_Plugin_Interface
             $comment->permalink
         );
 
+        if (self::commentByQQAsyncQueueEnabled($settings)) {
+            self::enqueueCommentByQQ((string)$message);
+            return;
+        }
+
         $payload = array(
             'user_id' => (int)$qqNum,
             'message' => $message
@@ -1560,29 +1766,420 @@ class Enhancement_Plugin implements Typecho_Plugin_Interface
             return;
         }
 
-        $ch = curl_init();
-        curl_setopt_array($ch, array(
-            CURLOPT_URL => rtrim($apiUrl, '/') . '/send_msg',
-            CURLOPT_POST => true,
-            CURLOPT_POSTFIELDS => json_encode($payload, JSON_UNESCAPED_UNICODE),
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_TIMEOUT => 10,
-            CURLOPT_HTTPHEADER => array(
-                'Content-Type: application/json; charset=UTF-8',
-                'Accept: application/json'
-            ),
-            CURLOPT_SSL_VERIFYPEER => false
-        ));
-
-        $response = curl_exec($ch);
-        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-
-        if (curl_errno($ch)) {
-            error_log('[Enhancement][CommentsByQQ] CURL错误: ' . curl_error($ch));
-        } else {
-            error_log(sprintf('[Enhancement][CommentsByQQ] 响应 [HTTP %d]: %s', $httpCode, substr((string)$response, 0, 200)));
+        $jsonPayload = json_encode($payload, JSON_UNESCAPED_UNICODE);
+        if ($jsonPayload === false) {
+            return;
         }
-        curl_close($ch);
+
+        $endpoint = rtrim($apiUrl, '/') . '/send_msg';
+        $lastErrorNo = 0;
+        $lastError = '';
+        $lastHttpCode = 0;
+        $lastResponse = '';
+
+        for ($attempt = 1; $attempt <= 2; $attempt++) {
+            $ch = curl_init();
+            $curlOptions = array(
+                CURLOPT_URL => $endpoint,
+                CURLOPT_POST => true,
+                CURLOPT_POSTFIELDS => $jsonPayload,
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_CONNECTTIMEOUT => 3,
+                CURLOPT_TIMEOUT => 5,
+                CURLOPT_HTTPHEADER => array(
+                    'Content-Type: application/json; charset=UTF-8',
+                    'Accept: application/json'
+                ),
+                CURLOPT_SSL_VERIFYPEER => false
+            );
+
+            if (defined('CURLOPT_IPRESOLVE') && defined('CURL_IPRESOLVE_V4')) {
+                $curlOptions[CURLOPT_IPRESOLVE] = CURL_IPRESOLVE_V4;
+            }
+            if (defined('CURLOPT_NOSIGNAL')) {
+                $curlOptions[CURLOPT_NOSIGNAL] = true;
+            }
+
+            curl_setopt_array($ch, $curlOptions);
+
+            $response = curl_exec($ch);
+            $httpCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            $errno = curl_errno($ch);
+            $error = $errno ? curl_error($ch) : '';
+            curl_close($ch);
+
+            if ($errno === 0 && $httpCode >= 200 && $httpCode < 300) {
+                return;
+            }
+
+            $lastErrorNo = $errno;
+            $lastError = $error;
+            $lastHttpCode = $httpCode;
+            $lastResponse = substr((string) $response, 0, 200);
+
+            if ($errno === CURLE_OPERATION_TIMEDOUT && $attempt < 2) {
+                usleep(150000);
+                continue;
+            }
+            break;
+        }
+
+        if ($lastErrorNo !== 0) {
+            if ($lastErrorNo !== CURLE_OPERATION_TIMEDOUT) {
+                error_log('[Enhancement][CommentsByQQ] CURL错误: ' . $lastError);
+            }
+            return;
+        }
+
+        if ($lastHttpCode >= 400) {
+            error_log(sprintf('[Enhancement][CommentsByQQ] 响应异常 [HTTP %d]: %s', $lastHttpCode, $lastResponse));
+        }
+    }
+
+    private static function commentByQQAsyncQueueEnabled($settings = null): bool
+    {
+        if ($settings === null) {
+            $options = Typecho_Widget::widget('Widget_Options');
+            $settings = self::pluginSettings($options);
+        }
+
+        if (!isset($settings->qq_async_queue)) {
+            return true;
+        }
+
+        return $settings->qq_async_queue == '1';
+    }
+
+    private static function enqueueCommentByQQ(string $message)
+    {
+        $message = trim($message);
+        if ($message === '') {
+            return;
+        }
+
+        self::ensureQqNotifyQueueTable();
+
+        try {
+            $db = Typecho_Db::get();
+            $table = $db->getPrefix() . 'qq_notify_queue';
+            $db->query(
+                $db->insert($table)->rows(array(
+                    'message' => $message,
+                    'status' => 0,
+                    'retries' => 0,
+                    'last_error' => null,
+                    'created' => time(),
+                    'updated' => time()
+                ))
+            );
+        } catch (Exception $e) {
+            self::sendCommentByQQMessage($message, false);
+        }
+    }
+
+    private static function processQqNotifyQueue()
+    {
+        static $processed = false;
+        if ($processed) {
+            return;
+        }
+        $processed = true;
+
+        $options = Typecho_Widget::widget('Widget_Options');
+        $settings = self::pluginSettings($options);
+        if (!isset($settings->enable_comment_by_qq) || $settings->enable_comment_by_qq != '1') {
+            return;
+        }
+        if (!self::commentByQQAsyncQueueEnabled($settings)) {
+            return;
+        }
+
+        self::ensureQqNotifyQueueTable();
+
+        try {
+            $db = Typecho_Db::get();
+            $table = $db->getPrefix() . 'qq_notify_queue';
+            $row = $db->fetchRow(
+                $db->select()
+                    ->from($table)
+                    ->where('status = ?', 0)
+                    ->where('retries < ?', 5)
+                    ->order('qid', Typecho_Db::SORT_ASC)
+                    ->limit(1)
+            );
+
+            if (!is_array($row) || empty($row)) {
+                return;
+            }
+
+            $qid = isset($row['qid']) ? intval($row['qid']) : 0;
+            $message = isset($row['message']) ? (string)$row['message'] : '';
+            $retries = isset($row['retries']) ? intval($row['retries']) : 0;
+            if ($qid <= 0 || trim($message) === '') {
+                return;
+            }
+
+            $result = self::sendCommentByQQMessage($message, true);
+            if (!empty($result['success'])) {
+                $db->query(
+                    $db->update($table)
+                        ->rows(array(
+                            'status' => 1,
+                            'updated' => time(),
+                            'last_error' => null
+                        ))
+                        ->where('qid = ?', $qid)
+                );
+                return;
+            }
+
+            $retries++;
+            $error = isset($result['error']) ? trim((string)$result['error']) : '';
+            if ($error === '') {
+                $error = 'send failed';
+            }
+
+            $db->query(
+                $db->update($table)
+                    ->rows(array(
+                        'status' => ($retries >= 5 ? 2 : 0),
+                        'retries' => $retries,
+                        'updated' => time(),
+                        'last_error' => Typecho_Common::subStr($error, 0, 250, '')
+                    ))
+                    ->where('qid = ?', $qid)
+            );
+        } catch (Exception $e) {
+            // ignore queue errors
+        }
+    }
+
+    private static function ensureQqNotifyQueueTable()
+    {
+        static $ensured = false;
+        if ($ensured) {
+            return;
+        }
+        $ensured = true;
+
+        $db = Typecho_Db::get();
+        $type = explode('_', $db->getAdapterName());
+        $type = array_pop($type);
+        $prefix = $db->getPrefix();
+
+        try {
+            if ('Pgsql' == $type) {
+                $db->query(
+                    'CREATE TABLE IF NOT EXISTS "' . $prefix . 'qq_notify_queue" ('
+                    . '"qid" serial PRIMARY KEY,'
+                    . '"message" text NOT NULL,'
+                    . '"status" integer DEFAULT 0,'
+                    . '"retries" integer DEFAULT 0,'
+                    . '"last_error" varchar(255),'
+                    . '"created" integer DEFAULT 0,'
+                    . '"updated" integer DEFAULT 0'
+                    . ')',
+                    Typecho_Db::WRITE
+                );
+                return;
+            }
+
+            if ('Mysql' == $type) {
+                $db->query(
+                    'CREATE TABLE IF NOT EXISTS `' . $prefix . 'qq_notify_queue` ('
+                    . '`qid` int(10) UNSIGNED NOT NULL AUTO_INCREMENT,'
+                    . '`message` text NOT NULL,'
+                    . '`status` int(10) DEFAULT 0,'
+                    . '`retries` int(10) DEFAULT 0,'
+                    . '`last_error` varchar(255) DEFAULT NULL,'
+                    . '`created` int(10) DEFAULT 0,'
+                    . '`updated` int(10) DEFAULT 0,'
+                    . 'PRIMARY KEY (`qid`)'
+                    . ') ENGINE=MyISAM DEFAULT CHARSET=utf8',
+                    Typecho_Db::WRITE
+                );
+                return;
+            }
+
+            if ('SQLite' == $type) {
+                $db->query(
+                    'CREATE TABLE IF NOT EXISTS `' . $prefix . 'qq_notify_queue` ('
+                    . '`qid` INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,'
+                    . '`message` text NOT NULL,'
+                    . '`status` int(10) DEFAULT 0,'
+                    . '`retries` int(10) DEFAULT 0,'
+                    . '`last_error` varchar(255) DEFAULT NULL,'
+                    . '`created` integer DEFAULT 0,'
+                    . '`updated` integer DEFAULT 0'
+                    . ')',
+                    Typecho_Db::WRITE
+                );
+            }
+        } catch (Exception $e) {
+            // ignore queue table errors
+        }
+    }
+
+    private static function getQqNotifyQueueStats(): array
+    {
+        self::ensureQqNotifyQueueTable();
+
+        $stats = array(
+            'pending' => 0,
+            'success' => 0,
+            'failed' => 0,
+            'total' => 0,
+        );
+
+        try {
+            $db = Typecho_Db::get();
+            $table = $db->getPrefix() . 'qq_notify_queue';
+            $rows = $db->fetchAll(
+                $db->select('status', array('COUNT(qid)' => 'num'))
+                    ->from($table)
+                    ->group('status')
+            );
+
+            if (is_array($rows)) {
+                foreach ($rows as $row) {
+                    $status = isset($row['status']) ? intval($row['status']) : 0;
+                    $num = isset($row['num']) ? intval($row['num']) : 0;
+                    if ($status === 1) {
+                        $stats['success'] += $num;
+                    } elseif ($status === 2) {
+                        $stats['failed'] += $num;
+                    } else {
+                        $stats['pending'] += $num;
+                    }
+                    $stats['total'] += $num;
+                }
+            }
+        } catch (Exception $e) {
+            // ignore queue stat errors
+        }
+
+        return $stats;
+    }
+
+    private static function sendCommentByQQMessage(string $message, bool $returnResult = false)
+    {
+        $result = array('success' => false, 'error' => '');
+
+        $options = Typecho_Widget::widget('Widget_Options');
+        $settings = self::pluginSettings($options);
+        $apiUrl = isset($settings->qqboturl) ? trim((string)$settings->qqboturl) : '';
+        $qqNum = isset($settings->qq) ? trim((string)$settings->qq) : '';
+
+        if ($apiUrl === '' || $qqNum === '') {
+            $result['error'] = 'qq settings missing';
+            return $returnResult ? $result : false;
+        }
+
+        $payload = array(
+            'user_id' => (int)$qqNum,
+            'message' => (string)$message
+        );
+
+        if (!function_exists('curl_init')) {
+            $result['error'] = 'curl extension missing';
+            return $returnResult ? $result : false;
+        }
+
+        $jsonPayload = json_encode($payload, JSON_UNESCAPED_UNICODE);
+        if ($jsonPayload === false) {
+            $result['error'] = 'payload json encode failed';
+            return $returnResult ? $result : false;
+        }
+
+        $endpoint = rtrim($apiUrl, '/') . '/send_msg';
+        $lastErrorNo = 0;
+        $lastError = '';
+        $lastHttpCode = 0;
+        $lastResponse = '';
+
+        for ($attempt = 1; $attempt <= 2; $attempt++) {
+            $ch = curl_init();
+            $curlOptions = array(
+                CURLOPT_URL => $endpoint,
+                CURLOPT_POST => true,
+                CURLOPT_POSTFIELDS => $jsonPayload,
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_CONNECTTIMEOUT => 3,
+                CURLOPT_TIMEOUT => 5,
+                CURLOPT_HTTPHEADER => array(
+                    'Content-Type: application/json; charset=UTF-8',
+                    'Accept: application/json'
+                ),
+                CURLOPT_SSL_VERIFYPEER => false
+            );
+
+            if (defined('CURLOPT_IPRESOLVE') && defined('CURL_IPRESOLVE_V4')) {
+                $curlOptions[CURLOPT_IPRESOLVE] = CURL_IPRESOLVE_V4;
+            }
+            if (defined('CURLOPT_NOSIGNAL')) {
+                $curlOptions[CURLOPT_NOSIGNAL] = true;
+            }
+
+            curl_setopt_array($ch, $curlOptions);
+
+            $response = curl_exec($ch);
+            $httpCode = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            $errno = curl_errno($ch);
+            $error = $errno ? curl_error($ch) : '';
+            curl_close($ch);
+
+            if ($errno === 0 && $httpCode >= 200 && $httpCode < 300) {
+                $decoded = json_decode((string)$response, true);
+                if (is_array($decoded)) {
+                    if (isset($decoded['retcode']) && intval($decoded['retcode']) !== 0) {
+                        $lastErrorNo = 0;
+                        $lastError = 'retcode=' . intval($decoded['retcode']);
+                        $lastHttpCode = $httpCode;
+                        $lastResponse = substr((string)$response, 0, 200);
+                        break;
+                    }
+                    if (isset($decoded['status']) && strtolower((string)$decoded['status']) !== 'ok') {
+                        $lastErrorNo = 0;
+                        $lastError = 'status=' . strtolower((string)$decoded['status']);
+                        $lastHttpCode = $httpCode;
+                        $lastResponse = substr((string)$response, 0, 200);
+                        break;
+                    }
+                }
+
+                $result['success'] = true;
+                return $returnResult ? $result : true;
+            }
+
+            $lastErrorNo = $errno;
+            $lastError = $error;
+            $lastHttpCode = $httpCode;
+            $lastResponse = substr((string)$response, 0, 200);
+
+            if ($errno === CURLE_OPERATION_TIMEDOUT && $attempt < 2) {
+                usleep(150000);
+                continue;
+            }
+            break;
+        }
+
+        if ($lastErrorNo !== 0) {
+            if ($lastErrorNo !== CURLE_OPERATION_TIMEDOUT) {
+                error_log('[Enhancement][CommentsByQQ] CURL错误: ' . $lastError);
+            }
+            $result['error'] = $lastError !== '' ? $lastError : ('curl errno=' . $lastErrorNo);
+            return $returnResult ? $result : false;
+        }
+
+        if ($lastHttpCode >= 400) {
+            error_log(sprintf('[Enhancement][CommentsByQQ] 响应异常 [HTTP %d]: %s', $lastHttpCode, $lastResponse));
+        }
+
+        $result['error'] = $lastError !== ''
+            ? $lastError
+            : ($lastResponse !== '' ? $lastResponse : ('http=' . $lastHttpCode));
+
+        return $returnResult ? $result : false;
     }
 
     public static function commentNotifierGetParent($comment): array
@@ -1622,6 +2219,8 @@ class Enhancement_Plugin implements Typecho_Plugin_Interface
 
     public static function commentNotifierMark($comment, $edit, $status)
     {
+        self::commentByQQMark($comment, $edit, $status);
+
         $options = Typecho_Widget::widget('Widget_Options');
         $plugin = self::pluginSettings($options);
         if (isset($plugin->enable_comment_notifier) && $plugin->enable_comment_notifier != '1') {
@@ -1982,6 +2581,7 @@ class Enhancement_Plugin implements Typecho_Plugin_Interface
     {
         self::registerRuntimeCommentFilter();
         self::upgradeLegacyCommentUrls();
+        self::processQqNotifyQueue();
 
         if (!self::avatarMirrorEnabled()) {
             return;
