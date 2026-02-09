@@ -340,6 +340,59 @@ class Enhancement_Action extends Typecho_Widget implements Widget_Interface_Do
         $this->response->goBack();
     }
 
+    private function qqQueueResponse($success, $message, $statusCode = 200)
+    {
+        $statusCode = intval($statusCode);
+        if ($statusCode > 0) {
+            $this->response->setStatus($statusCode);
+        }
+
+        if ($this->request->isAjax()) {
+            $this->response->throwJson(array(
+                'success' => (bool)$success,
+                'message' => (string)$message
+            ));
+            return;
+        }
+
+        $this->widget('Widget_Notice')->set(
+            (string)$message,
+            null,
+            $success ? 'success' : 'error'
+        );
+        $this->response->goBack();
+    }
+
+    public function retryQqNotifyQueue()
+    {
+        try {
+            $table = $this->prefix . 'qq_notify_queue';
+            $affected = $this->db->query(
+                $this->db->update($table)
+                    ->rows(array(
+                        'status' => 0,
+                        'updated' => time()
+                    ))
+                    ->where('status = ?', 2)
+            );
+
+            $this->qqQueueResponse(true, _t('已将 %d 条失败记录标记为待重试', intval($affected)), 200);
+        } catch (Exception $e) {
+            $this->qqQueueResponse(false, _t('重试失败：%s', $e->getMessage()), 500);
+        }
+    }
+
+    public function clearQqNotifyQueue()
+    {
+        try {
+            $table = $this->prefix . 'qq_notify_queue';
+            $this->db->query($this->db->delete($table));
+            $this->qqQueueResponse(true, _t('QQ通知队列已清空'), 200);
+        } catch (Exception $e) {
+            $this->qqQueueResponse(false, _t('清空失败：%s', $e->getMessage()), 500);
+        }
+    }
+
     public function sendQqTestNotify()
     {
         $settings = $this->collectPluginSettings();
@@ -1179,6 +1232,22 @@ class Enhancement_Action extends Typecho_Widget implements Widget_Interface_Do
             $user = Typecho_Widget::widget('Widget_User');
             $user->pass('administrator');
             $this->sendQqTestNotify();
+            return;
+        }
+
+        if ($this->request->is('do=qq-queue-retry')) {
+            Helper::security()->protect();
+            $user = Typecho_Widget::widget('Widget_User');
+            $user->pass('administrator');
+            $this->retryQqNotifyQueue();
+            return;
+        }
+
+        if ($this->request->is('do=qq-queue-clear')) {
+            Helper::security()->protect();
+            $user = Typecho_Widget::widget('Widget_User');
+            $user->pass('administrator');
+            $this->clearQqNotifyQueue();
             return;
         }
 

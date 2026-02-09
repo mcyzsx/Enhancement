@@ -19,3 +19,13 @@ CREATE TABLE IF NOT EXISTS "typecho_moments" (
   "source" varchar(20) DEFAULT 'web',
   "created" integer DEFAULT 0
 );
+
+CREATE TABLE IF NOT EXISTS "typecho_qq_notify_queue" (
+  "qid" serial PRIMARY KEY,
+  "message" text NOT NULL,
+  "status" integer DEFAULT 0,
+  "retries" integer DEFAULT 0,
+  "last_error" varchar(255),
+  "created" integer DEFAULT 0,
+  "updated" integer DEFAULT 0
+);

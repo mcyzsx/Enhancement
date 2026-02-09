@@ -21,3 +21,14 @@ CREATE TABLE IF NOT EXISTS `typecho_moments` (
   `created` int(10) UNSIGNED DEFAULT '0' COMMENT '创建时间',
   PRIMARY KEY (`mid`)
 ) ENGINE=MYISAM DEFAULT CHARSET=%charset%;
+
+CREATE TABLE IF NOT EXISTS `typecho_qq_notify_queue` (
+  `qid` int(10) UNSIGNED NOT NULL AUTO_INCREMENT,
+  `message` text NOT NULL,
+  `status` int(10) DEFAULT 0,
+  `retries` int(10) DEFAULT 0,
+  `last_error` varchar(255) DEFAULT NULL,
+  `created` int(10) DEFAULT 0,
+  `updated` int(10) DEFAULT 0,
+  PRIMARY KEY (`qid`)
+) ENGINE=MYISAM DEFAULT CHARSET=%charset%;
