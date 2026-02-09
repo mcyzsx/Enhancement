@@ -51,15 +51,11 @@ class Enhancement_CommentNotifier_Action extends Typecho_Widget implements Widge
             $mail->send();
 
             $at = date('Y-m-d H:i:s');
-            if ($mail->isError()) {
-                $data = $at . ' ' . $mail->ErrorInfo;
-            } else {
-                $data = PHP_EOL . $at . ' 发送成功!! ';
-                $data .= ' 发件人:' . $fromName;
-                $data .= ' 发件邮箱:' . $from;
-                $data .= ' 接收邮箱:' . $_REQUEST['to'];
-                $data .= ' 接收人:' . $_REQUEST['fromName'] . PHP_EOL;
-            }
+            $data = PHP_EOL . $at . ' 发送成功!! ';
+            $data .= ' 发件人:' . $fromName;
+            $data .= ' 发件邮箱:' . $from;
+            $data .= ' 接收邮箱:' . $_REQUEST['to'];
+            $data .= ' 接收人:' . $_REQUEST['fromName'] . PHP_EOL;
             echo $data;
         } catch (Exception $e) {
             $str = "\nerror time: " . date('Y-m-d H:i:s') . "\n";

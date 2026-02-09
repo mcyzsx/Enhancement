@@ -17,6 +17,7 @@ $response = $options->response;
 
 $db = Typecho_Db::get();
 $prefix = $db->getPrefix();
+$errorMessage = '';
 
 // 确保装备表存在
 try {

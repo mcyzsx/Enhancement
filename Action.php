@@ -10,6 +10,8 @@ class Enhancement_Action extends Typecho_Widget implements Widget_Interface_Do
     {
         parent::__construct($request, $response, $params);
         $this->db = Typecho_Db::get();
+        $this->prefix = $this->db->getPrefix();
+        $this->options = Typecho_Widget::widget('Widget_Options');
     }
 
     private function normalizePluginSettings(array $settings)
