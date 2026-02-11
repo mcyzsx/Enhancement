@@ -1,4 +1,4 @@
-﻿﻿<?php
+﻿﻿﻿﻿﻿﻿<?php
 
 /**
  * Enhancement 插件

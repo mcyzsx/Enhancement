@@ -1814,6 +1814,59 @@ class Enhancement_Action extends Typecho_Widget implements Widget_Interface_Do
         }
     }
 
+    /**
+     * 批量修改链接分类
+     */
+    public function updateLinksCategory()
+    {
+        $lids = $this->request->filter('int')->getArray('lid');
+        $category = trim((string)$this->request->get('category'));
+        
+        $updateCount = 0;
+        if ($lids && is_array($lids) && $category !== '') {
+            foreach ($lids as $lid) {
+                if ($this->db->query($this->db->update($this->prefix . 'links')->rows(array('sort' => $category))->where('lid = ?', $lid))) {
+                    $updateCount++;
+                }
+            }
+        }
+        
+        /** 提示信息 */
+        $this->widget('Widget_Notice')->set(
+            $updateCount > 0 ? _t('已成功修改 ' . $updateCount . ' 个链接的分类') : _t('没有链接分类被修改'),
+            null,
+            $updateCount > 0 ? 'success' : 'notice'
+        );
+
+        /** 转向原页 */
+        $this->response->redirect(Typecho_Common::url('extending.php?panel=Enhancement%2Fmanage-enhancement.php', $this->options->adminUrl));
+    }
+
+    /**
+     * 获取所有链接分类列表
+     */
+    public function getLinkCategories()
+    {
+        $categories = array();
+        try {
+            $rows = $this->db->fetchAll($this->db->select('sort')->from($this->prefix . 'links')->group('sort'));
+            foreach ($rows as $row) {
+                $sort = trim((string)$row['sort']);
+                if ($sort !== '' && !in_array($sort, $categories)) {
+                    $categories[] = $sort;
+                }
+            }
+        } catch (Exception $e) {
+            // ignore
+        }
+        // 默认分类
+        if (empty($categories)) {
+            $categories[] = '网上邻居';
+        }
+        sort($categories);
+        return $categories;
+    }
+
     public function emailLogo()
     {
         /* 邮箱头像解API接口 by 懵仙兔兔 */
@@ -2141,6 +2194,7 @@ class Enhancement_Action extends Typecho_Widget implements Widget_Interface_Do
         $this->on($this->request->is('do=approve'))->approveEnhancement();
         $this->on($this->request->is('do=reject'))->rejectEnhancement();
         $this->on($this->request->is('do=sort'))->sortEnhancement();
+        $this->on($this->request->is('do=update-category'))->updateLinksCategory();
         $this->on($this->request->is('do=email-logo'))->emailLogo();
         $this->response->redirect($this->options->adminUrl);
     }
