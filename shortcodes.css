@@ -1,0 +1,64 @@
+.enhancement-shortcode{display:block;margin:4px 0;border-radius:8px;}
+.enhancement-callout{padding:8px 12px;border:1px solid transparent;line-height:1.6;}
+.enhancement-callout-primary,.enhancement-callout-important{background:#eef2ff;border-color:#c7d2fe;color:#1e3a8a;}
+.enhancement-callout-success{background:#ecfdf5;border-color:#a7f3d0;color:#065f46;}
+.enhancement-callout-info{background:#eff6ff;border-color:#bfdbfe;color:#1d4ed8;}
+.enhancement-callout-danger{background:#fef2f2;border-color:#fecaca;color:#b91c1c;}
+.enhancement-reply{padding:10px 12px;background:#f8fafc;border:1px dashed #cbd5e1;color:#0f172a;}
+.enhancement-reply-locked{background:#fff7ed;border-color:#fed7aa;color:#9a3412;}
+.enhancement-reply-lock-text{font-size:13px;}
+.enhancement-reply-action{display:inline-flex;align-items:center;justify-content:center;margin-top:8px;padding:4px 10px;border:1px solid #fdba74;border-radius:999px;background:#fff;color:#9a3412;font-size:12px;line-height:1.4;text-decoration:none;}
+.enhancement-reply-action:hover{background:#ffedd5;color:#7c2d12;text-decoration:none;}
+.enhancement-article-ref,.enhancement-github-ref{display:inline-flex;align-items:center;gap:6px;padding:7px 10px;border:1px solid #e5e7eb;border-radius:8px;background:#fff;color:#111827;text-decoration:none;}
+.enhancement-article-ref:hover,.enhancement-github-ref:hover{border-color:#cbd5e1;background:#f8fafc;text-decoration:none;}
+.enhancement-github-card-link{display:block;max-width:560px;padding:0;border:0;background:transparent;text-decoration:none;}
+.enhancement-github-card{display:block;max-width:100%;height:auto;border-radius:10px;border:1px solid #e5e7eb;background:#fff;}
+.enhancement-download-card{padding:0;border:1px solid #e5e7eb;background:#fff;overflow:hidden;max-width:640px;}
+.enhancement-download-link{display:flex;align-items:center;gap:12px;padding:12px 14px;color:#111827;text-decoration:none;}
+.enhancement-download-link:hover{background:#f8fafc;text-decoration:none;}
+.enhancement-download-icon{display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;border-radius:50%;background:#eff6ff;color:#1d4ed8;font-size:16px;font-weight:700;flex:0 0 32px;}
+.enhancement-download-main{display:flex;flex-direction:column;gap:4px;min-width:0;flex:1;}
+.enhancement-download-file{font-size:14px;font-weight:600;color:inherit;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.enhancement-download-meta{font-size:12px;color:#6b7280;line-height:1.4;}
+.enhancement-download-badge{display:inline-flex;align-items:center;justify-content:center;min-width:48px;padding:2px 8px;border:1px solid #dbeafe;border-radius:999px;background:#eff6ff;color:#1d4ed8;font-size:11px;font-weight:600;line-height:1.6;}
+.enhancement-public-form{display:grid;grid-template-columns:minmax(0,1fr);column-gap:12px;max-width:760px;margin:12px 0;padding:14px 14px 10px;border:1px solid #e5e7eb;border-radius:12px;background:#fff;box-sizing:border-box;}
+.enhancement-public-form .typecho-option{margin:0 0 10px;}
+.enhancement-public-form label{display:block;margin-bottom:6px;font-size:13px;line-height:1.4;font-weight:600;color:#374151;}
+.enhancement-public-form input[type="text"],.enhancement-public-form input[type="url"],.enhancement-public-form input[type="email"],.enhancement-public-form textarea{display:block;width:100%;padding:9px 10px;border:1px solid #d1d5db;border-radius:8px;background:#fff;color:#111827;box-sizing:border-box;font-size:14px;line-height:1.5;transition:border-color .2s ease,box-shadow .2s ease;}
+.enhancement-public-form textarea{min-height:108px;resize:vertical;}
+.enhancement-public-form input[type="text"]:focus,.enhancement-public-form input[type="url"]:focus,.enhancement-public-form input[type="email"]:focus,.enhancement-public-form textarea:focus{outline:none;border-color:#60a5fa;box-shadow:0 0 0 3px rgba(59,130,246,.16);}
+.enhancement-public-form .description{margin-top:4px;font-size:12px;line-height:1.5;color:#6b7280;}
+.enhancement-public-form .hidden{display:none !important;}
+.enhancement-public-form .btn.primary,.enhancement-public-form input[type="submit"],.enhancement-public-form button[type="submit"]{display:inline-flex;align-items:center;justify-content:center;padding:8px 14px;border:1px solid #2563eb;border-radius:999px;background:#2563eb;color:#fff;font-size:13px;line-height:1.5;cursor:pointer;text-decoration:none;transition:background-color .2s ease,border-color .2s ease;}
+.enhancement-public-form .btn.primary:hover,.enhancement-public-form input[type="submit"]:hover,.enhancement-public-form button[type="submit"]:hover{background:#1d4ed8;border-color:#1d4ed8;text-decoration:none;}
+.enhancement-turnstile{margin:8px 0 10px;}
+@media (min-width: 760px){
+.enhancement-public-form{grid-template-columns:repeat(2,minmax(0,1fr));}
+.enhancement-public-form .enhancement-public-full{grid-column:1 / -1;}
+}
+@media (prefers-color-scheme: dark){
+.enhancement-callout-primary,.enhancement-callout-important{background:#1e293b;border-color:#334155;color:#c7d2fe;}
+.enhancement-callout-success{background:#052e21;border-color:#064e3b;color:#6ee7b7;}
+.enhancement-callout-info{background:#0c4a6e;border-color:#075985;color:#bae6fd;}
+.enhancement-callout-danger{background:#450a0a;border-color:#7f1d1d;color:#fca5a5;}
+.enhancement-reply{background:#0f172a;border-color:#334155;color:#e2e8f0;}
+.enhancement-reply-locked{background:#3f1d0f;border-color:#7c2d12;color:#fdba74;}
+.enhancement-reply-action{background:#3f1d0f;border-color:#c2410c;color:#fdba74;}
+.enhancement-reply-action:hover{background:#4a200f;color:#fed7aa;}
+.enhancement-article-ref,.enhancement-github-ref{background:#111827;border-color:#374151;color:#e5e7eb;}
+.enhancement-article-ref:hover,.enhancement-github-ref:hover{background:#1f2937;border-color:#4b5563;}
+.enhancement-github-card{border-color:#374151;background:#111827;}
+.enhancement-download-card{background:#111827;border-color:#374151;}
+.enhancement-download-link{color:#e5e7eb;}
+.enhancement-download-link:hover{background:#1f2937;}
+.enhancement-download-icon{background:#1e3a8a;color:#dbeafe;}
+.enhancement-download-meta{color:#9ca3af;}
+.enhancement-download-badge{background:#1e3a8a;border-color:#1d4ed8;color:#dbeafe;}
+.enhancement-public-form{background:#111827;border-color:#374151;}
+.enhancement-public-form label{color:#e5e7eb;}
+.enhancement-public-form input[type="text"],.enhancement-public-form input[type="url"],.enhancement-public-form input[type="email"],.enhancement-public-form textarea{background:#0f172a;border-color:#374151;color:#f3f4f6;}
+.enhancement-public-form input[type="text"]:focus,.enhancement-public-form input[type="url"]:focus,.enhancement-public-form input[type="email"]:focus,.enhancement-public-form textarea:focus{border-color:#60a5fa;box-shadow:0 0 0 3px rgba(59,130,246,.26);}
+.enhancement-public-form .description{color:#9ca3af;}
+.enhancement-public-form .btn.primary,.enhancement-public-form input[type="submit"],.enhancement-public-form button[type="submit"]{background:#1d4ed8;border-color:#1d4ed8;color:#e5e7eb;}
+.enhancement-public-form .btn.primary:hover,.enhancement-public-form input[type="submit"]:hover,.enhancement-public-form button[type="submit"]:hover{background:#1e40af;border-color:#1e40af;}
+}

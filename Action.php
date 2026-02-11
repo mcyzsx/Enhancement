@@ -5,6 +5,10 @@ class Enhancement_Action extends Typecho_Widget implements Widget_Interface_Do
     private $db;
     private $options;
     private $prefix;
+    private static $metingCache = array();
+    private $metingOutputBaseLevel = 0;
+    private $metingDisplayErrorsBackup = null;
+    private $metingErrorReportingBackup = null;
 
     public function __construct($request, $response, $params = null)
     {
@@ -125,6 +129,434 @@ class Enhancement_Action extends Typecho_Widget implements Widget_Interface_Do
         }
 
         return $settings;
+    }
+
+    private function metingCacheDir()
+    {
+        $root = defined('__TYPECHO_ROOT_DIR__')
+            ? (string)__TYPECHO_ROOT_DIR__
+            : dirname(dirname(dirname(dirname(__FILE__))));
+
+        $root = rtrim(str_replace('\\', '/', $root), '/');
+        return $root . '/usr/cache';
+    }
+
+    private function metingCacheEnsureDir()
+    {
+        $dir = $this->metingCacheDir();
+        if (!is_dir($dir)) {
+            @mkdir($dir, 0755, true);
+        }
+
+        if (!is_dir($dir) || !is_writable($dir)) {
+            return '';
+        }
+
+        return $dir;
+    }
+
+    private function metingCacheFile($key)
+    {
+        $key = trim((string)$key);
+        if ($key === '') {
+            return '';
+        }
+
+        $dir = $this->metingCacheEnsureDir();
+        if ($dir === '') {
+            return '';
+        }
+
+        return $dir . DIRECTORY_SEPARATOR . 'enhancement_meting_' . md5($key) . '.json';
+    }
+
+    private function metingCacheGet($key, $ttl = 300)
+    {
+        $key = trim((string)$key);
+        if ($key === '') {
+            return null;
+        }
+
+        $ttl = intval($ttl);
+        if ($ttl <= 0) {
+            $ttl = 300;
+        }
+
+        $now = time();
+        if (isset(self::$metingCache[$key]) && is_array(self::$metingCache[$key])) {
+            $item = self::$metingCache[$key];
+            if (isset($item['expires'], $item['data']) && intval($item['expires']) > $now) {
+                return $item['data'];
+            }
+
+            if (isset($item['time'], $item['data']) && ($now - intval($item['time']) <= $ttl)) {
+                return $item['data'];
+            }
+        }
+
+        $file = $this->metingCacheFile($key);
+        if ($file === '' || !is_file($file)) {
+            return null;
+        }
+
+        $raw = @file_get_contents($file);
+        if (!is_string($raw) || $raw === '') {
+            return null;
+        }
+
+        $decoded = json_decode($raw, true);
+        if (!is_array($decoded)) {
+            @unlink($file);
+            return null;
+        }
+
+        if (isset($decoded['expires'], $decoded['data'])) {
+            if (intval($decoded['expires']) <= $now) {
+                @unlink($file);
+                return null;
+            }
+
+            self::$metingCache[$key] = array(
+                'expires' => intval($decoded['expires']),
+                'data' => $decoded['data']
+            );
+            return $decoded['data'];
+        }
+
+        if (isset($decoded['time'], $decoded['data']) && ($now - intval($decoded['time']) <= $ttl)) {
+            self::$metingCache[$key] = array(
+                'expires' => $now + $ttl,
+                'data' => $decoded['data']
+            );
+            return $decoded['data'];
+        }
+
+        @unlink($file);
+        return null;
+    }
+
+    private function metingCacheSet($key, $data, $ttl = 300)
+    {
+        $key = trim((string)$key);
+        if ($key === '') {
+            return;
+        }
+
+        $ttl = intval($ttl);
+        if ($ttl <= 0) {
+            $ttl = 300;
+        }
+
+        $expires = time() + $ttl;
+        self::$metingCache[$key] = array(
+            'expires' => $expires,
+            'data' => $data
+        );
+
+        $file = $this->metingCacheFile($key);
+        if ($file === '') {
+            return;
+        }
+
+        $payload = json_encode(array(
+            'expires' => $expires,
+            'data' => $data
+        ), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+
+        if ($payload !== false) {
+            @file_put_contents($file, $payload, LOCK_EX);
+        }
+    }
+
+    private function metingApiResponseJson($data)
+    {
+        $this->metingApiDiscardBufferedOutput();
+        $this->response->setStatus(200);
+        $this->response->setContentType('application/json; charset=UTF-8');
+        echo json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    }
+
+    private function metingApiResponseError($message, $status = 400)
+    {
+        $this->metingApiDiscardBufferedOutput();
+        $this->response->setStatus(intval($status));
+        $this->response->setContentType('application/json; charset=UTF-8');
+        echo json_encode(array('error' => trim((string)$message)), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    }
+
+    private function metingApiBeginOutputGuard()
+    {
+        $this->metingOutputBaseLevel = ob_get_level();
+        @ob_start();
+        $this->metingDisplayErrorsBackup = ini_get('display_errors');
+        $this->metingErrorReportingBackup = error_reporting();
+        @ini_set('display_errors', '0');
+        @error_reporting(E_ALL & ~E_WARNING & ~E_NOTICE & ~E_DEPRECATED & ~E_STRICT);
+    }
+
+    private function metingApiDiscardBufferedOutput()
+    {
+        $base = intval($this->metingOutputBaseLevel);
+        if ($base < 0) {
+            $base = 0;
+        }
+
+        while (ob_get_level() > $base) {
+            @ob_end_clean();
+        }
+    }
+
+    private function metingApiEndOutputGuard()
+    {
+        $this->metingApiDiscardBufferedOutput();
+
+        if ($this->metingDisplayErrorsBackup !== null) {
+            @ini_set('display_errors', (string)$this->metingDisplayErrorsBackup);
+        }
+
+        if ($this->metingErrorReportingBackup !== null) {
+            @error_reporting(intval($this->metingErrorReportingBackup));
+        }
+    }
+
+    private function metingApiNormalizeServer($server)
+    {
+        $server = strtolower(trim((string)$server));
+        $allow = array('netease', 'tencent', 'kugou', 'kuwo', 'xiami', 'baidu');
+        if (!in_array($server, $allow, true)) {
+            return '';
+        }
+
+        return $server;
+    }
+
+    private function metingApiNormalizeType($type)
+    {
+        $type = strtolower(trim((string)$type));
+        $allow = array('song', 'album', 'artist', 'playlist', 'search');
+        if (!in_array($type, $allow, true)) {
+            return '';
+        }
+
+        return $type;
+    }
+
+    private function metingApiNormalizeId($id)
+    {
+        $id = trim((string)$id);
+        if ($id === '' || strlen($id) > 128) {
+            return '';
+        }
+        if (!preg_match('/^[A-Za-z0-9_\-]+$/', $id)) {
+            return '';
+        }
+
+        return $id;
+    }
+
+    private function metingApiBuildAudioList($songs)
+    {
+        if (!is_array($songs)) {
+            return array();
+        }
+
+        $rows = array();
+        foreach ($songs as $song) {
+            if (!is_array($song)) {
+                continue;
+            }
+
+            $source = isset($song['source']) ? trim((string)$song['source']) : '';
+            $urlId = isset($song['url_id']) ? trim((string)$song['url_id']) : '';
+            $picId = isset($song['pic_id']) ? trim((string)$song['pic_id']) : '';
+            $lyricId = isset($song['lyric_id']) ? trim((string)$song['lyric_id']) : '';
+            if ($source === '' || $urlId === '' || $picId === '' || $lyricId === '') {
+                continue;
+            }
+
+            $name = isset($song['name']) ? trim((string)$song['name']) : '';
+            $album = isset($song['album']) ? trim((string)$song['album']) : '';
+            $artists = array();
+            if (isset($song['artist']) && is_array($song['artist'])) {
+                foreach ($song['artist'] as $artist) {
+                    $artistName = trim((string)$artist);
+                    if ($artistName !== '') {
+                        $artists[] = $artistName;
+                    }
+                }
+            }
+
+            $base = Typecho_Common::url('action/enhancement-edit', $this->options->index) . '?do=meting-api';
+            $rows[] = array(
+                'name' => $name,
+                'artist' => implode(' / ', $artists),
+                'album' => $album,
+                'url' => $base . '&server=' . rawurlencode($source) . '&type=url&id=' . rawurlencode($urlId),
+                'cover' => $base . '&server=' . rawurlencode($source) . '&type=pic&id=' . rawurlencode($picId),
+                'lrc' => $base . '&server=' . rawurlencode($source) . '&type=lrc&id=' . rawurlencode($lyricId)
+            );
+        }
+
+        return $rows;
+    }
+
+    public function metingApi()
+    {
+        $this->metingApiBeginOutputGuard();
+
+        if (!function_exists('curl_init')) {
+            $this->metingApiResponseError('缺少 cURL 扩展', 500);
+            return;
+        }
+
+        $server = $this->metingApiNormalizeServer($this->request->get('server'));
+        $type = strtolower(trim((string)$this->request->get('type')));
+        $id = trim((string)$this->request->get('id'));
+
+        if ($server === '' || $type === '' || $id === '') {
+            $this->metingApiResponseError('参数不完整', 400);
+            return;
+        }
+
+        $metingFile = dirname(__FILE__) . '/Meting/Meting.php';
+        if (!is_file($metingFile)) {
+            $this->metingApiResponseError('本地 Meting 文件不存在', 500);
+            return;
+        }
+
+        require_once $metingFile;
+        if (!class_exists('Metowolf\\Meting')) {
+            $this->metingApiResponseError('本地 Meting 类加载失败', 500);
+            return;
+        }
+
+        try {
+            $api = new \Metowolf\Meting($server);
+            $api->format(true);
+
+            if ($server === 'netease') {
+                $settings = Typecho_Widget::widget('Widget_Options')->plugin('Enhancement');
+                $cookie = isset($settings->music_netease_cookie) ? trim((string)$settings->music_netease_cookie) : '';
+                if ($cookie !== '') {
+                    $api->cookie($cookie);
+                }
+            }
+
+            if ($type === 'url') {
+                $id = $this->metingApiNormalizeId($id);
+                if ($id === '') {
+                    $this->metingApiResponseError('id 参数无效', 400);
+                    return;
+                }
+
+                $cacheKey = 'url:' . $server . ':' . $id;
+                $data = $this->metingCacheGet($cacheKey, 1200);
+                if ($data === null) {
+                    $data = $api->url($id, 320);
+                    $this->metingCacheSet($cacheKey, $data, 1200);
+                }
+
+                $parsed = json_decode((string)$data, true);
+                $url = is_array($parsed) && isset($parsed['url']) ? trim((string)$parsed['url']) : '';
+                if ($url === '' && $server === 'netease') {
+                    $url = 'https://music.163.com/song/media/outer/url?id=' . rawurlencode($id) . '.mp3';
+                }
+
+                $this->metingApiDiscardBufferedOutput();
+                $this->response->setStatus(302);
+                $this->response->redirect($url);
+                return;
+            }
+
+            if ($type === 'pic') {
+                $id = $this->metingApiNormalizeId($id);
+                if ($id === '') {
+                    $this->metingApiResponseError('id 参数无效', 400);
+                    return;
+                }
+
+                $cacheKey = 'pic:' . $server . ':' . $id;
+                $data = $this->metingCacheGet($cacheKey, 86400);
+                if ($data === null) {
+                    $data = $api->pic($id, 300);
+                    $this->metingCacheSet($cacheKey, $data, 86400);
+                }
+
+                $parsed = json_decode((string)$data, true);
+                $url = is_array($parsed) && isset($parsed['url']) ? trim((string)$parsed['url']) : '';
+                $this->metingApiDiscardBufferedOutput();
+                $this->response->setStatus(302);
+                $this->response->redirect($url);
+                return;
+            }
+
+            if ($type === 'lrc') {
+                $id = $this->metingApiNormalizeId($id);
+                if ($id === '') {
+                    $this->metingApiResponseError('id 参数无效', 400);
+                    return;
+                }
+
+                $cacheKey = 'lrc:' . $server . ':' . $id;
+                $data = $this->metingCacheGet($cacheKey, 86400);
+                if ($data === null) {
+                    $data = $api->lyric($id);
+                    $this->metingCacheSet($cacheKey, $data, 86400);
+                }
+
+                $parsed = json_decode((string)$data, true);
+                $lyric = is_array($parsed) && isset($parsed['lyric']) ? (string)$parsed['lyric'] : '';
+                $this->metingApiDiscardBufferedOutput();
+                $this->response->setStatus(200);
+                $this->response->setContentType('text/plain; charset=UTF-8');
+                echo $lyric;
+                return;
+            }
+
+            $normalizedType = $this->metingApiNormalizeType($type);
+            if ($normalizedType === '') {
+                $this->metingApiResponseError('type 参数无效', 400);
+                return;
+            }
+
+            if ($normalizedType === 'search') {
+                $keyword = trim((string)$id);
+                if ($keyword === '') {
+                    $this->metingApiResponseError('搜索关键词不能为空', 400);
+                    return;
+                }
+
+                $cacheKey = 'search:' . $server . ':' . md5($keyword);
+                $data = $this->metingCacheGet($cacheKey, 300);
+                if ($data === null) {
+                    $data = $api->search($keyword, array('limit' => 30, 'page' => 1));
+                    $this->metingCacheSet($cacheKey, $data, 300);
+                }
+            } else {
+                $id = $this->metingApiNormalizeId($id);
+                if ($id === '') {
+                    $this->metingApiResponseError('id 参数无效', 400);
+                    return;
+                }
+
+                $cacheKey = $normalizedType . ':' . $server . ':' . $id;
+                $data = $this->metingCacheGet($cacheKey, 3600);
+                if ($data === null) {
+                    $data = $api->$normalizedType($id);
+                    $this->metingCacheSet($cacheKey, $data, 3600);
+                }
+            }
+
+            $songs = json_decode((string)$data, true);
+            $rows = $this->metingApiBuildAudioList($songs);
+            $this->metingApiResponseJson($rows);
+        } catch (Error $e) {
+            $this->metingApiResponseError('本地 Meting 解析失败：' . $e->getMessage(), 500);
+        } catch (Exception $e) {
+            $this->metingApiResponseError('本地 Meting 解析失败：' . $e->getMessage(), 500);
+        } finally {
+            $this->metingApiEndOutputGuard();
+        }
     }
 
     private function savePluginSettings(array $settings)
@@ -372,6 +804,25 @@ class Enhancement_Action extends Typecho_Widget implements Widget_Interface_Do
         $this->response->goBack();
     }
 
+    private function shouldUseJsonUploadResponse()
+    {
+        if ($this->request->isAjax()) {
+            return true;
+        }
+
+        $accept = strtolower((string)$this->request->getHeader('Accept', ''));
+        if (strpos($accept, 'application/json') !== false) {
+            return true;
+        }
+
+        $contentType = strtolower((string)$this->request->getHeader('Content-Type', ''));
+        if (strpos($contentType, 'application/json') !== false) {
+            return true;
+        }
+
+        return $this->request->is('do=upload-package') && isset($_FILES['pluginzip']);
+    }
+
     private function uploadResponse($success, $message, $statusCode = 200)
     {
         $statusCode = intval($statusCode);
@@ -379,7 +830,7 @@ class Enhancement_Action extends Typecho_Widget implements Widget_Interface_Do
             $this->response->setStatus($statusCode);
         }
 
-        if ($this->request->isAjax()) {
+        if ($this->shouldUseJsonUploadResponse()) {
             $this->response->throwJson(array(
                 'success' => (bool)$success,
                 'message' => (string)$message
@@ -522,24 +973,52 @@ class Enhancement_Action extends Typecho_Widget implements Widget_Interface_Do
         $pluginDir = defined('__TYPECHO_PLUGIN_DIR__') ? __TYPECHO_PLUGIN_DIR__ : '/usr/plugins';
         $themeDir = defined('__TYPECHO_THEME_DIR__') ? __TYPECHO_THEME_DIR__ : '/usr/themes';
         $rootDir = defined('__TYPECHO_ROOT_DIR__') ? __TYPECHO_ROOT_DIR__ : dirname(dirname(dirname(__FILE__)));
+        $pluginRoot = rtrim($rootDir . $pluginDir, '/\\');
+        $themeRoot = rtrim($rootDir . $themeDir, '/\\');
 
         $targetBase = '';
+        $targetPackageDir = '';
+        $mainFileInZip = '';
+        $isThemePackage = false;
         $typeLabel = '';
+
+        for ($i = 0; $i < $zip->numFiles; $i++) {
+            $entry = str_replace('\\', '/', (string)$zip->getNameIndex($i));
+            $entry = ltrim($entry, '/');
+            if ($entry === '') {
+                continue;
+            }
+
+            if (strpos($entry, '../') !== false || preg_match('/^[a-zA-Z]:/', $entry) || strpos($entry, "\0") !== false) {
+                $zip->close();
+                $this->uploadResponse(false, _t('压缩包包含非法路径，已拒绝安装'), 400);
+                return;
+            }
+        }
 
         $pluginIndex = $zip->locateName('Plugin.php', ZipArchive::FL_NOCASE | ZipArchive::FL_NODIR);
         if ($pluginIndex !== false) {
             $typeLabel = _t('插件');
-            $fileName = $zip->getNameIndex($pluginIndex);
-            $pathParts = explode('/', str_replace('\\', '/', (string)$fileName));
+            $fileName = ltrim(str_replace('\\', '/', (string)$zip->getNameIndex($pluginIndex)), '/');
+            $pathParts = array_values(array_filter(explode('/', $fileName), 'strlen'));
+            $mainFileInZip = $fileName;
 
-            if (count($pathParts) > 2) {
+            if (count($pathParts) < 1 || count($pathParts) > 2) {
                 $zip->close();
                 $this->uploadResponse(false, _t('压缩包目录层级过深，无法安装'), 400);
                 return;
             }
 
             if (count($pathParts) == 2) {
-                $targetBase = rtrim($rootDir . $pluginDir, '/\\') . DIRECTORY_SEPARATOR;
+                $packageName = trim((string)$pathParts[0]);
+                if ($packageName === '' || $packageName === '.' || $packageName === '..') {
+                    $zip->close();
+                    $this->uploadResponse(false, _t('无法识别插件目录名'), 400);
+                    return;
+                }
+
+                $targetBase = $pluginRoot . DIRECTORY_SEPARATOR;
+                $targetPackageDir = $pluginRoot . DIRECTORY_SEPARATOR . $packageName;
             } else {
                 $contents = $zip->getFromIndex($pluginIndex);
                 $pluginInfo = $this->parseUploadPluginInfo((string)$contents);
@@ -548,7 +1027,11 @@ class Enhancement_Action extends Typecho_Widget implements Widget_Interface_Do
                     $this->uploadResponse(false, _t('无法识别插件信息'), 400);
                     return;
                 }
-                $targetBase = rtrim($rootDir . $pluginDir, '/\\') . DIRECTORY_SEPARATOR . $pluginInfo['name'] . DIRECTORY_SEPARATOR;
+
+                $packageName = trim((string)$pluginInfo['name']);
+                $mainFileInZip = 'Plugin.php';
+                $targetBase = $pluginRoot . DIRECTORY_SEPARATOR . $packageName . DIRECTORY_SEPARATOR;
+                $targetPackageDir = rtrim($targetBase, '/\\');
             }
         } else {
             $themeIndex = $zip->locateName('index.php', ZipArchive::FL_NOCASE | ZipArchive::FL_NODIR);
@@ -559,9 +1042,12 @@ class Enhancement_Action extends Typecho_Widget implements Widget_Interface_Do
             }
 
             $typeLabel = _t('主题');
-            $fileName = $zip->getNameIndex($themeIndex);
-            $pathParts = explode('/', str_replace('\\', '/', (string)$fileName));
-            if (count($pathParts) > 2) {
+            $isThemePackage = true;
+            $fileName = ltrim(str_replace('\\', '/', (string)$zip->getNameIndex($themeIndex)), '/');
+            $pathParts = array_values(array_filter(explode('/', $fileName), 'strlen'));
+            $mainFileInZip = $fileName;
+
+            if (count($pathParts) < 1 || count($pathParts) > 2) {
                 $zip->close();
                 $this->uploadResponse(false, _t('压缩包目录层级过深，无法安装'), 400);
                 return;
@@ -575,22 +1061,35 @@ class Enhancement_Action extends Typecho_Widget implements Widget_Interface_Do
             }
 
             if (count($pathParts) == 2) {
-                $targetBase = rtrim($rootDir . $themeDir, '/\\') . DIRECTORY_SEPARATOR;
+                $packageName = trim((string)$pathParts[0]);
+                if ($packageName === '' || $packageName === '.' || $packageName === '..') {
+                    $zip->close();
+                    $this->uploadResponse(false, _t('无法识别主题目录名'), 400);
+                    return;
+                }
+
+                $targetBase = $themeRoot . DIRECTORY_SEPARATOR;
+                $targetPackageDir = $themeRoot . DIRECTORY_SEPARATOR . $packageName;
             } else {
                 $themeName = pathinfo(isset($file['name']) ? (string)$file['name'] : 'theme', PATHINFO_FILENAME);
                 $themeName = preg_replace('/[^a-zA-Z0-9_-]/', '', $themeName);
                 if ($themeName === '') {
                     $themeName = 'theme';
                 }
-                $targetBase = rtrim($rootDir . $themeDir, '/\\') . DIRECTORY_SEPARATOR . $themeName . DIRECTORY_SEPARATOR;
+
+                $mainFileInZip = 'index.php';
+                $targetBase = $themeRoot . DIRECTORY_SEPARATOR . $themeName . DIRECTORY_SEPARATOR;
+                $targetPackageDir = rtrim($targetBase, '/\\');
             }
         }
 
-        if ($targetBase === '') {
+        if ($targetBase === '' || $targetPackageDir === '' || $mainFileInZip === '') {
             $zip->close();
             $this->uploadResponse(false, _t('未找到可安装目标目录'), 400);
             return;
         }
+
+        $packageDirExisted = is_dir($targetPackageDir);
 
         if (!is_dir($targetBase)) {
             @mkdir($targetBase, 0755, true);
@@ -605,6 +1104,35 @@ class Enhancement_Action extends Typecho_Widget implements Widget_Interface_Do
             $zip->close();
             $this->uploadResponse(false, _t('解压失败，请检查目录写入权限'), 500);
             return;
+        }
+
+        $installedMainFile = rtrim($targetBase, '/\\')
+            . DIRECTORY_SEPARATOR
+            . str_replace('/', DIRECTORY_SEPARATOR, ltrim($mainFileInZip, '/'));
+
+        if (!is_file($installedMainFile)) {
+            $zip->close();
+
+            if (!$packageDirExisted && is_dir($targetPackageDir)) {
+                $this->removeDirectoryRecursively($targetPackageDir);
+            }
+
+            $this->uploadResponse(false, _t('安装不完整，缺少入口文件：%s', $mainFileInZip), 500);
+            return;
+        }
+
+        if ($isThemePackage) {
+            $installedThemeIndex = @file_get_contents($installedMainFile);
+            if ($installedThemeIndex === false || !$this->isThemeIndexFile((string)$installedThemeIndex)) {
+                $zip->close();
+
+                if (!$packageDirExisted && is_dir($targetPackageDir)) {
+                    $this->removeDirectoryRecursively($targetPackageDir);
+                }
+
+                $this->uploadResponse(false, _t('主题入口文件校验失败，请检查 ZIP 结构是否正确'), 400);
+                return;
+            }
         }
 
         $zip->close();
@@ -1123,9 +1651,9 @@ class Enhancement_Action extends Typecho_Widget implements Widget_Interface_Do
 
         /** 过滤XSS */
         $item['name'] = $this->request->filter('xss')->name;
-        $item['sort'] = $this->request->filter('xss')->sort;
+        $item['sort'] = '';
         $item['description'] = $this->request->filter('xss')->description;
-        $item['user'] = $this->request->filter('xss')->user;
+        $item['user'] = '';
         $item = $this->sanitizePublicLinkItem($item);
 
         if (!Enhancement_Plugin::validateHttpUrl($item['url'])) {
@@ -1577,6 +2105,11 @@ class Enhancement_Action extends Typecho_Widget implements Widget_Interface_Do
             $user = Typecho_Widget::widget('Widget_User');
             $user->pass('administrator');
             $this->deleteThemePackage();
+            return;
+        }
+
+        if ($this->request->is('do=meting-api')) {
+            $this->metingApi();
             return;
         }
 
