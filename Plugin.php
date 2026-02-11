@@ -1023,11 +1023,11 @@ class Enhancement_Plugin implements Typecho_Plugin_Interface
         );
 
         /** 友链名称 */
-        $name = new Typecho_Widget_Helper_Form_Element_Text('name', null, null, _t('友链名称*'));
+        $name = new Typecho_Widget_Helper_Form_Element_Text('name', null, null, _t('网站名称*'));
         $form->addInput($name);
 
         /** 友链地址 */
-        $url = new Typecho_Widget_Helper_Form_Element_Text('url', null, "http://", _t('友链地址*'));
+        $url = new Typecho_Widget_Helper_Form_Element_Text('url', null, "http://", _t('网站地址*'));
         $form->addInput($url);
 
         /** 友链分类 */
@@ -1035,15 +1035,16 @@ class Enhancement_Plugin implements Typecho_Plugin_Interface
         $form->addInput($sort);
 
         /** 友链邮箱 */
-        $email = new Typecho_Widget_Helper_Form_Element_Text('email', null, null, _t('友链邮箱'), _t('填写友链邮箱'));
+        $email = new Typecho_Widget_Helper_Form_Element_Text('email', null, null, _t('您的邮箱'), _t('填写友链邮箱'));
         $form->addInput($email);
 
         /** 友链图片 */
-        $image = new Typecho_Widget_Helper_Form_Element_Text('image', null, null, _t('友链图片'),  _t('需要以http://或https://开头，留空表示没有友链图片'));
+        $image = new Typecho_Widget_Helper_Form_Element_Text('image', null, null, _t('网站图片'),  _t('需要以http://或https://开头，留空表示没有网站图片'));
         $form->addInput($image);
 
         /** 友链描述 */
-        $description =  new Typecho_Widget_Helper_Form_Element_Textarea('description', null, null, _t('友链描述'));
+        $description =  new Typecho_Widget_Helper_Form_Element_Textarea('description', null, null, _t('网站描述'));
+        $description->setAttribute('class', 'typecho-option enhancement-public-full');
         $form->addInput($description);
 
         /** 自定义数据 */
@@ -1133,26 +1134,21 @@ class Enhancement_Plugin implements Typecho_Plugin_Interface
         $form->setAttribute('class', 'enhancement-public-form');
         $form->setAttribute('data-enhancement-form', 'link-submit');
 
-        $name = new Typecho_Widget_Helper_Form_Element_Text('name', null, null, _t('友链名称*'));
+        $name = new Typecho_Widget_Helper_Form_Element_Text('name', null, null, _t('网站名称*'));
         $form->addInput($name);
 
-        $url = new Typecho_Widget_Helper_Form_Element_Text('url', null, "http://", _t('友链地址*'));
+        $url = new Typecho_Widget_Helper_Form_Element_Text('url', null, "http://", _t('网站地址*'));
         $form->addInput($url);
 
-        $sort = new Typecho_Widget_Helper_Form_Element_Text('sort', null, null, _t('友链分类'), _t('建议以英文字母开头，只包含字母与数字'));
-        $form->addInput($sort);
-
-        $email = new Typecho_Widget_Helper_Form_Element_Text('email', null, null, _t('友链邮箱'), _t('填写友链邮箱'));
+        $email = new Typecho_Widget_Helper_Form_Element_Text('email', null, null, _t('您的邮箱'), _t('填写您的邮箱'));
         $form->addInput($email);
 
-        $image = new Typecho_Widget_Helper_Form_Element_Text('image', null, null, _t('友链图片'),  _t('需要以http://或https://开头，留空表示没有友链图片'));
+        $image = new Typecho_Widget_Helper_Form_Element_Text('image', null, null, _t('网站图片'),  _t('需要以http://或https://开头，留空表示没有网站图片'));
         $form->addInput($image);
 
-        $description =  new Typecho_Widget_Helper_Form_Element_Textarea('description', null, null, _t('友链描述'));
+        $description =  new Typecho_Widget_Helper_Form_Element_Textarea('description', null, null, _t('网站描述'));
+        $description->setAttribute('class', 'typecho-option enhancement-public-full');
         $form->addInput($description);
-
-        $user = new Typecho_Widget_Helper_Form_Element_Text('user', null, null, _t('自定义数据'), _t('该项用于用户自定义数据扩展'));
-        $form->addInput($user);
 
         $honeypot = new Typecho_Widget_Helper_Form_Element_Text('homepage', null, '', _t('网站'), _t('请勿填写此字段'));
         $honeypot->setAttribute('class', 'hidden');
@@ -1166,7 +1162,8 @@ class Enhancement_Plugin implements Typecho_Plugin_Interface
         $form->addInput($do);
 
         $submit = new Typecho_Widget_Helper_Form_Element_Submit();
-        $submit->input->setAttribute('class', 'btn primary');
+        $submit->setAttribute('class', 'typecho-option enhancement-public-submit enhancement-public-full');
+        $submit->input->setAttribute('class', 'btn primary enhancement-public-submit-btn');
         $submit->value(_t('提交申请'));
         $form->addItem($submit);
 
@@ -1179,11 +1176,9 @@ class Enhancement_Plugin implements Typecho_Plugin_Interface
         $image->addRule(array('Enhancement_Plugin', 'validateOptionalHttpUrl'), _t('友链图片仅支持 http:// 或 https://'));
         $name->addRule('maxLength', _t('友链名称最多包含50个字符'), 50);
         $url->addRule('maxLength', _t('友链地址最多包含200个字符'), 200);
-        $sort->addRule('maxLength', _t('友链分类最多包含50个字符'), 50);
         $email->addRule('maxLength', _t('友链邮箱最多包含50个字符'), 50);
         $image->addRule('maxLength', _t('友链图片最多包含200个字符'), 200);
         $description->addRule('maxLength', _t('友链描述最多包含200个字符'), 200);
-        $user->addRule('maxLength', _t('自定义数据最多包含200个字符'), 200);
 
         return $form;
     }
@@ -1594,7 +1589,7 @@ class Enhancement_Plugin implements Typecho_Plugin_Interface
         $formIdAttr = $formId !== '' ? ' data-form-id="' . htmlspecialchars($formId, ENT_QUOTES, 'UTF-8') . '"' : '';
         $siteKey = htmlspecialchars(self::turnstileSiteKey(), ENT_QUOTES, 'UTF-8');
 
-        return '<div class="typecho-option enhancement-turnstile"' . $formIdAttr . '>'
+        return '<div class="typecho-option enhancement-turnstile enhancement-public-full"' . $formIdAttr . '>'
             . '<div class="cf-turnstile" data-sitekey="' . $siteKey . '"></div>'
             . '</div>';
     }

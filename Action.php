@@ -1642,9 +1642,9 @@ class Enhancement_Action extends Typecho_Widget implements Widget_Interface_Do
 
         /** 过滤XSS */
         $item['name'] = $this->request->filter('xss')->name;
-        $item['sort'] = $this->request->filter('xss')->sort;
+        $item['sort'] = '';
         $item['description'] = $this->request->filter('xss')->description;
-        $item['user'] = $this->request->filter('xss')->user;
+        $item['user'] = '';
         $item = $this->sanitizePublicLinkItem($item);
 
         if (!Enhancement_Plugin::validateHttpUrl($item['url'])) {
